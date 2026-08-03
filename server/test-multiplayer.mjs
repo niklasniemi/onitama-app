@@ -169,6 +169,24 @@ try {
   check("the custom card is actually dealt", inPlay.includes(1000), inPlay);
   check("junk custom cards are rejected",
     (await ask(await connect(), "create-room", { customCards: [{ id: 5, m: [[9, 9]] }] })).state.customCards.length === 0);
+
+  // three cards cannot make a game; the room is refused rather than quietly
+  // dealt from a different deck than the host asked for
+  const shortReq = await ask(await connect(), "create-room", {
+    sets: { base: false, sensei: false, custom: true },
+    customCards: mine,
+  });
+  check("an undealable deck is refused, not substituted",
+    shortReq.ok === false && shortReq.error === "short-deck", shortReq);
+
+  const fiveMine = [0, 1, 2, 3, 4].map((i) => ({
+    id: 1000 + i, fi: "K" + i, en: "K" + i, k: "私", d: "B", m: [[0, -1], [1, 1]],
+  }));
+  const allMine = await ask(await connect(), "create-room", {
+    sets: { base: false, sensei: false, custom: true }, customCards: fiveMine,
+  });
+  const dealt = [...allMine.state.board.redHand, ...allMine.state.board.blueHand, allMine.state.board.spare];
+  check("a deck of only custom cards plays", allMine.ok && dealt.every((id) => id >= 1000), dealt);
   h.close(); g.close();
 
   console.log("\n7. leaving for good");

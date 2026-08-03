@@ -48,7 +48,6 @@
           Arial, sans-serif;
 
   --cardH: 100px;
-  --topH: 100px;
   --foot: 17px;
   /* the pulled-out reserve card, and the drawer width that holds it */
   --spare-card-w: clamp(94px, 29vw, 126px);
@@ -153,6 +152,7 @@ button:focus-visible,
   top: 50%;
   transform: translateY(-50%);
   z-index: 8;
+  transition: none;
   display: flex;
   /* the tab stays pinned to the edge; the panel grows inwards from it */
   flex-direction: row-reverse;
@@ -215,6 +215,27 @@ button:focus-visible,
   opacity: 1;
   padding: 7px 4px 7px 7px;
 }
+
+/* Docked: there is room beside the mat, so the reserve card simply sits there
+   at full size. No tab, nothing to open, nothing covering the board. */
+#spareDrawer.docked {
+  position: static;
+  grid-column: 3;
+  transform: none;
+}
+#spareDrawer.docked .spare-tab { display: none; }
+#spareDrawer.docked .spare-panel {
+  width: auto;
+  opacity: 1;
+  overflow: visible;
+  padding: 0;
+  flex-direction: column-reverse;
+  gap: 4px;
+}
+#spareDrawer.docked .spare-arrow { font-size: 20px; }
+/* docked it is simply a third card, the same size as the two in hand */
+#spareDrawer.docked .card.spare { height: var(--cardH); }
+#spareDrawer.docked .card.spare .card-diagram { max-height: 100%; }
 
 .spare-arrow {
   flex: 0 0 auto;
@@ -336,7 +357,8 @@ button:focus-visible,
 
 .card {
   position: relative;
-  flex: 1 1 0;
+  flex: 0 1 var(--cardW);
+  width: var(--cardW);
   min-width: 0;
   height: var(--cardH);
   display: flex;
@@ -378,7 +400,6 @@ button:focus-visible,
   mix-blend-mode: multiply;
 }
 
-.card.top { height: var(--topH); }
 .card.spare {
   --h: var(--spare-card-w);
   --foot: calc(var(--spare-card-w) * .17);
@@ -547,12 +568,16 @@ button:focus-visible,
 #boardWrap {
   position: relative;
   display: grid;
-  place-items: center;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  justify-items: center;
   min-height: 0;
   min-width: 0;
-  /* the mat is centred in the space left of the reserve tab's gutter */
+  /* narrow screens keep a lane on the right for the reserve tab */
   padding-right: 36px;
 }
+#board { grid-column: 2; }
+#stage.docked #boardWrap { padding-right: 0; }
 
 #board {
   display: block;
@@ -1345,6 +1370,7 @@ button:focus-visible,
       <div class="field">
         <div class="lbl" id="lSets">Korttisetit</div>
         <div class="opts two" id="optSets"></div>
+        <p class="net-note" id="deckState"></p>
       </div>
 
       <div id="onlineBox">
@@ -1602,6 +1628,11 @@ const STR = {
     clearPicks: "Tyhjennä valinnat ja estot",
     deckExact: "Pelataan tasan %n valitulla kortilla.",
     deckPool: "Arvonnassa %n korttia.",
+    deckShort: "Valittuna vain %n korttia — peliin tarvitaan %m. Ota mukaan lisää settejä tai luo lisää omia kortteja.",
+    deckPickShort: "Olet valinnut tasan %n korttia — peliin tarvitaan vähintään %m.",
+    deckTooShort: "Valitussa pakassa on liian vähän kortteja peliin.",
+    setCustomN: "%n omaa korttia",
+    setCustomNone: "Et ole vielä luonut kortteja",
     favourite: "suosikki",
     fldName: "Nimi",
     fldGlyph: "Merkki",
@@ -1727,6 +1758,11 @@ const STR = {
     clearPicks: "Clear picks and blocks",
     deckExact: "Playing with exactly %n picked cards.",
     deckPool: "%n cards in the draw.",
+    deckShort: "Only %n cards selected — a game needs %m. Add another set, or draw more cards of your own.",
+    deckPickShort: "You picked exactly %n cards — a game needs at least %m.",
+    deckTooShort: "The chosen deck has too few cards for a game.",
+    setCustomN: "%n cards of your own",
+    setCustomNone: "You have not drawn any yet",
     favourite: "favourite",
     fldName: "Name",
     fldGlyph: "Glyph",
@@ -2200,10 +2236,16 @@ function deckIds() {
   if (S.sets.custom) pool.push(...P.custom.map((c) => c.id).filter(known));
 
   const blocked = new Set(P.blocked);
-  const left = pool.filter((id) => !blocked.has(id));
-  if (left.length >= 5) return left;
-  return pool.length >= 5 ? pool : SET_BASE.slice();
+  return pool.filter((id) => !blocked.has(id));
 }
+
+// A game deals five cards, so that is the floor. Nothing silently substitutes a
+// different deck: an impossible selection is reported, not quietly replaced.
+const DECK_MIN = 5;
+const deckOk = () => deckIds().length >= DECK_MIN;
+
+/** A deck that is always legal — for the idle board behind the menu. */
+const safeDeck = () => (deckOk() ? deckIds() : SET_BASE.slice());
 
 /* ==========================================================================
    8. Audio — a tiny synth, so there are no assets to load
@@ -2498,11 +2540,7 @@ function stageChrome() {
 
 function layoutBoard() {
   const cv = $("#board");
-  // Derived from the viewport rather than measured from the wrapper: the canvas
-  // is a fixed-size child, so measuring its own parent would let the old size
-  // hold the row open and the mat could never shrink.
-  const availH = window.innerHeight - stageChrome() - cardH * 2;
-  const size = Math.max(100, Math.floor(Math.min(window.innerWidth - 8 - TAB_GUTTER, availH)));
+  const size = LO.board;
   if (size === B.size && B.mat) return;
   B.size = size;
   B.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -3321,31 +3359,74 @@ const CARD_RATIO = 1.62;
 const TOP_SCALE = 0.7;
 const SPARE_SCALE = 0.56;
 
-const MIN_BOARD = 150;
 const FOOT_MIN = 13, FOOT_MAX = 21;
-const TAB_GUTTER = 36;        // reserved down the right edge for the reserve tab
+const TAB_GUTTER = 36;        // right-edge lane for the reserve tab, when needed
+const MIN_CARD = 64;
+const MAX_CARD = 320;
+
+/** The last computed layout, shared by sizeCards() and layoutBoard(). */
+let LO = { board: 300, cardH: 100, cardW: 150, spareW: 130, docked: false };
 
 /**
- * Cards fill the width edge to edge — two per row, sharing the space equally —
- * and take whatever height is left once the mat has its square. The diagram is
- * the card, so the taller a card can be, the more readable the pattern.
+ * Work out the mat, the hand cards and where the reserve card goes.
+ *
+ * Everything is derived from the viewport rather than measured from the DOM:
+ * the canvas is a fixed-size child, so measuring its own container would let
+ * the previous size hold the row open and nothing could ever shrink.
+ *
+ * The reserve card docks beside the mat whenever there is honestly room for it
+ * at full size — a desktop window, a tablet. Only when there is not does it
+ * fold into a drawer, which is a phone concession, not the default.
  */
-function sizeCards() {
+function computeLayout() {
   const vw = window.innerWidth, vh = window.innerHeight;
   const room = vh - stageChrome();
-  // the mat is square and width-bound, so it fixes what the two rows can have
-  const board = Math.min(vw - 8 - TAB_GUTTER, room - 2 * 56);
-  const h = Math.floor(clamp((room - board) / 2, 56, Math.max(56, vw * 0.56)));
-  cardH = h;
-  const cardW = (vw - 8 - 6) / 2;
+
+  // the mat never takes so much height that the hands become unreadable, and on
+  // a wide screen it stops growing well before it swallows the column
+  const matFor = (avail) => Math.max(100, Math.floor(
+    Math.min(avail, room - 2 * MIN_CARD, room * 0.62)));
+
+  const cardsFor = (board) => {
+    const h = Math.floor(clamp((room - board) / 2, MIN_CARD, MAX_CARD));
+    // past a point extra width is just margin either side of a square diagram
+    const w = Math.floor(Math.min((vw - 14) / 2, h * 1.05));
+    return { h, w };
+  };
+
+  let board = matFor(vw - 8);
+  let { h, w } = cardsFor(board);
+
+  // room for a full-size card in the space the mat leaves on each side?
+  const docked = (vw - board) / 2 >= w + 16;
+  if (!docked) {
+    board = matFor(vw - 8 - TAB_GUTTER);
+    ({ h, w } = cardsFor(board));
+  }
+
+  // in the drawer the card may overlap the mat — the drawer closes again, so a
+  // generous size costs nothing and makes the pattern properly readable
+  const spareW = docked ? w : Math.floor(Math.min(w, vw * 0.48));
+
+  LO = { board, cardH: h, cardW: w, spareW, docked };
+  return LO;
+}
+
+function sizeCards() {
+  const L2 = computeLayout();
+  cardH = L2.cardH;
   const root = document.documentElement.style;
-  root.setProperty("--cardH", h + "px");
-  root.setProperty("--topH", h + "px");
-  // caption scales with the card, but stays legible at either extreme
-  root.setProperty("--foot", clamp(Math.min(h, cardW) * 0.15, FOOT_MIN, FOOT_MAX).toFixed(1) + "px");
+  root.setProperty("--cardH", L2.cardH + "px");
+  root.setProperty("--cardW", L2.cardW + "px");
+  root.setProperty("--spare-card-w", L2.spareW + "px");
+  root.setProperty("--spare-w", (L2.spareW + 30) + "px");
+  root.setProperty("--foot",
+    clamp(Math.min(L2.cardH, L2.cardW) * 0.15, FOOT_MIN, FOOT_MAX).toFixed(1) + "px");
+  $("#stage").classList.toggle("docked", L2.docked);
+  $("#spareDrawer").classList.toggle("docked", L2.docked);
   document.querySelectorAll(".card").forEach((el) => {
     if (el.classList.contains("spare")) return;
-    el.style.setProperty("--h", h + "px");
+    el.style.setProperty("--h", L2.cardH + "px");
   });
 }
 
@@ -3631,6 +3712,7 @@ function showVictory(winner, reason) {
 
 /** Local game (pass-and-play or side-by-side). Online starts from the server. */
 function startGame() {
+  if (!deckOk()) { setNetNote(deckShortText(), true); Audio_.play("deny"); return; }
   clearTimeout(S.animTimer);
   if (S.net.on) { Net.leave(); }
   resetNet();
@@ -3671,11 +3753,21 @@ const NET_ERRORS = {
   "not-your-turn": "oppMove",
   "opponent-away": "oppLeftWait",
   "no-server": "onlineOff",
+  "short-deck": "deckTooShort",
   lib: "linkLost",
   offline: "linkLost",
   unreachable: "linkLost",
   timeout: "linkLost",
 };
+
+/** Why the current selection cannot be dealt, in the player's own terms. */
+function deckShortText() {
+  const n = deckIds().length;
+  if (P.picked.length && P.picked.length < DECK_MIN) {
+    return L.deckPickShort.replace("%n", String(P.picked.length)).replace("%m", String(DECK_MIN));
+  }
+  return L.deckShort.replace("%n", String(n)).replace("%m", String(DECK_MIN));
+}
 
 function netError(err) {
   const key = NET_ERRORS[err && err.message];
@@ -4332,10 +4424,17 @@ function renderMenu() {
     om.appendChild(b);
   }
 
+  // deck health is shown wherever a game can be started from
+  const n = deckIds().length;
+  const short = n < DECK_MIN;
+  $("#deckState").textContent = short ? deckShortText() : L.deckPool.replace("%n", String(n));
+  $("#deckState").classList.toggle("err", short);
+  $("#btnStart").disabled = short;
+
   // online swaps the single start button for create / join
   const online = S.mode === "online";
   $("#onlineBox").classList.toggle("on", online);
-  $("#btnCreate").disabled = !Net.available;
+  $("#btnCreate").disabled = !Net.available || short;
   $("#btnJoin").disabled = !Net.available;
   $("#lbOpenRooms").textContent = L.openRooms;
   $("#lbByCode").textContent = L.byCode;
@@ -4349,7 +4448,8 @@ function renderMenu() {
     ["base", L.setBase, L.setBaseD],
     ["sensei", L.setSensei, L.setSenseiD],
   ];
-  if (P.custom.length) sets.push(["custom", L.setCustom, L.setCustomD]);
+  sets.push(["custom", L.setCustom,
+    P.custom.length ? L.setCustomN.replace("%n", String(P.custom.length)) : L.setCustomNone]);
   const os = $("#optSets");
   os.innerHTML = "";
   for (const [id, t, d] of sets) {
@@ -4361,7 +4461,6 @@ function renderMenu() {
     b.innerHTML = '<span class="t">' + t + '</span><span class="d">' + d + "</span>";
     b.addEventListener("click", () => {
       S.sets[id] = !S.sets[id];
-      if (!S.sets.base && !S.sets.sensei) S.sets[id] = true;   // never an empty deck
       Audio_.play("tap");
       renderMenu();
     });
@@ -4541,7 +4640,7 @@ function boot() {
   bind();
   bindNet();
   // a board exists behind the menu, so the mat is already alive on screen
-  S.board = newBoard(deckIds());
+  S.board = newBoard(safeDeck());
   S.viewSide = "red";
   layoutBoard();
   renderHands(null);

@@ -82,10 +82,12 @@ function deckFor(sets, customCards) {
   if (sets && sets.sensei) ids.push(...SET_SENSEI);
   if (sets && sets.custom) ids.push(...(customCards || []).map((c) => c.id));
   const blocked = new Set((sets && Array.isArray(sets.blocked)) ? sets.blocked : []);
-  const left = ids.filter((id) => !blocked.has(id));
-  if (left.length >= 5) return left;
-  return ids.length >= 5 ? ids : SET_BASE.slice();
+  // Returned as-is even when it is too short: a room that cannot be dealt is
+  // refused, never quietly swapped for a different deck than the host chose.
+  return ids.filter((id) => !blocked.has(id));
 }
+
+const DECK_MIN = 5;
 
 /** Keep only well-formed custom cards, so a client cannot inject junk. */
 function sanitiseCards(list) {
@@ -123,13 +125,15 @@ function createRoom(sets, customCards) {
   if (!code) return null;
   const cards = sanitiseCards(customCards);
   if (cards.length) setCustomCards(cards);       // needed to deal the opening hand
+  const deck = deckFor(sets, cards);
+  if (deck.length < DECK_MIN) { if (cards.length) setCustomCards([]); return "short-deck"; }
   const room = {
     code,
     customCards: cards,
     createdAt: Date.now(),
     sets: { base: !(sets && sets.base === false), sensei: !!(sets && sets.sensei),
             custom: !!(sets && sets.custom) && cards.length > 0 },
-    board: newBoard(deckFor(sets, cards)),
+    board: newBoard(deck),
     lastMove: null,
     winner: null,
     reason: null,
@@ -225,13 +229,16 @@ function publishRooms() {
 }
 
 function resetRoom(room) {
-  room.board = newBoard(deckFor(room.sets, room.customCards));
+  const deck = deckFor(room.sets, room.customCards);
+  if (deck.length < DECK_MIN) return false;
+  room.board = newBoard(deck);
   room.lastMove = null;
   room.winner = null;
   room.reason = null;
   room.turns = 0;
   room.captures = 0;
   room.rematch = { red: false, blue: false };
+  return true;
 }
 
 /* --------------------------------------------------------------------------
@@ -266,6 +273,7 @@ io.on("connection", (socket) => {
   socket.on("create-room", (payload, cb) => {
     if (rooms.size >= MAX_ROOMS) return fail(cb, "server-busy");
     const room = createRoom(payload && payload.sets, payload && payload.customCards);
+    if (room === "short-deck") return fail(cb, "short-deck");
     if (!room) return fail(cb, "server-busy");
     const token = newToken();
     room.seats.red = { token, socketId: socket.id, connected: true };
