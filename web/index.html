@@ -60,6 +60,22 @@
 
 * { box-sizing: border-box; }
 
+/* This is a game board, not a document. Dragging across it should never paint
+   a blue selection, and a long press should not raise the copy/define menu.
+   Real text fields keep normal behaviour so codes and names stay editable. */
+html {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+input, textarea, [contenteditable="true"] {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -573,11 +589,8 @@ button:focus-visible,
   justify-items: center;
   min-height: 0;
   min-width: 0;
-  /* narrow screens keep a lane on the right for the reserve tab */
-  padding-right: 36px;
 }
 #board { grid-column: 2; }
-#stage.docked #boardWrap { padding-right: 0; }
 
 #board {
   display: block;
@@ -3360,7 +3373,6 @@ const TOP_SCALE = 0.7;
 const SPARE_SCALE = 0.56;
 
 const FOOT_MIN = 13, FOOT_MAX = 21;
-const TAB_GUTTER = 36;        // right-edge lane for the reserve tab, when needed
 const MIN_CARD = 64;
 const MAX_CARD = 320;
 
@@ -3382,27 +3394,17 @@ function computeLayout() {
   const vw = window.innerWidth, vh = window.innerHeight;
   const room = vh - stageChrome();
 
-  // the mat never takes so much height that the hands become unreadable, and on
-  // a wide screen it stops growing well before it swallows the column
-  const matFor = (avail) => Math.max(100, Math.floor(
-    Math.min(avail, room - 2 * MIN_CARD, room * 0.62)));
+  // The mat is centred and always takes the full width it can: the reserve tab
+  // floats over its right edge rather than pushing it off centre.
+  const board = Math.max(100, Math.floor(
+    Math.min(vw - 8, room - 2 * MIN_CARD, room * 0.62)));
 
-  const cardsFor = (board) => {
-    const h = Math.floor(clamp((room - board) / 2, MIN_CARD, MAX_CARD));
-    // past a point extra width is just margin either side of a square diagram
-    const w = Math.floor(Math.min((vw - 14) / 2, h * 1.05));
-    return { h, w };
-  };
-
-  let board = matFor(vw - 8);
-  let { h, w } = cardsFor(board);
+  const h = Math.floor(clamp((room - board) / 2, MIN_CARD, MAX_CARD));
+  // past a point extra width is just margin either side of a square diagram
+  const w = Math.floor(Math.min((vw - 14) / 2, h * 1.05));
 
   // room for a full-size card in the space the mat leaves on each side?
   const docked = (vw - board) / 2 >= w + 16;
-  if (!docked) {
-    board = matFor(vw - 8 - TAB_GUTTER);
-    ({ h, w } = cardsFor(board));
-  }
 
   // in the drawer the card may overlap the mat — the drawer closes again, so a
   // generous size costs nothing and makes the pattern properly readable
@@ -3566,6 +3568,18 @@ function flyGhost(ghost, from, to, dur, tilt, done) {
   const dy = to.top + to.height / 2 - (from.top + from.height / 2);
   const sc = Math.min(to.width / Math.max(1, from.width), to.height / Math.max(1, from.height));
 
+  // A backstop timer as well as onfinish: animations do not progress while the
+  // tab is in the background, so a player switching apps mid-move would
+  // otherwise come back to a pile of cards frozen over the board.
+  let cleared = false;
+  const cleanup = () => {
+    if (cleared) return;
+    cleared = true;
+    ghost.remove();
+    if (done) done();
+  };
+  setTimeout(cleanup, dur + 150);
+
   const anim = ghost.animate([
     { transform: "translate(0,0) scale(1) rotate(0deg)", opacity: 1 },
     { transform: "translate(" + dx * 0.55 + "px," + (dy * 0.45 - 14) + "px) scale(" +
@@ -3573,7 +3587,7 @@ function flyGhost(ghost, from, to, dur, tilt, done) {
     { transform: "translate(" + dx + "px," + dy + "px) scale(" + sc + ") rotate(0deg)", opacity: 0.9 },
   ], { duration: dur, easing: "cubic-bezier(.3,.8,.2,1)", fill: "forwards" });
 
-  anim.onfinish = () => { ghost.remove(); if (done) done(); };
+  anim.onfinish = cleanup;
 }
 
 function renderChrome() {
@@ -4624,6 +4638,12 @@ function bind() {
   if (window.ResizeObserver) new ResizeObserver(relayout).observe(document.documentElement);
   if (window.visualViewport) window.visualViewport.addEventListener("resize", relayout);
   document.addEventListener("visibilitychange", () => { paused = document.hidden; });
+
+  // A long press on the mat or a card is a mis-hit, not a request to copy.
+  // Text fields keep their menu so a room code can still be pasted in.
+  document.addEventListener("contextmenu", (e) => {
+    if (!e.target.closest("input, textarea, [contenteditable='true']")) e.preventDefault();
+  });
 }
 
 /* ==========================================================================
