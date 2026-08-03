@@ -122,7 +122,7 @@ function createRoom(sets, customCards) {
   const code = newCode();
   if (!code) return null;
   const cards = sanitiseCards(customCards);
-  if (cards.length) setCustomCards(cards);
+  if (cards.length) setCustomCards(cards);       // needed to deal the opening hand
   const room = {
     code,
     customCards: cards,
@@ -140,6 +140,7 @@ function createRoom(sets, customCards) {
     touchedAt: Date.now(),
     reapTimer: null,
   };
+  if (cards.length) setCustomCards([]);          // never leave a table installed
   rooms.set(code, room);
   return room;
 }

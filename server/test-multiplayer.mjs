@@ -153,7 +153,25 @@ try {
   check("returning player receives the live board",
     JSON.stringify(rejoined.state.board) === JSON.stringify(states.red.board));
 
-  console.log("\n6. leaving for good");
+  console.log("\n6. a room carries its host's custom cards to the guest");
+  const h = await connect();
+  const g = await connect();
+  const mine = [{ id: 1000, fi: "Haukka", en: "Hawk", k: "鷹", d: "B", m: [[0, -2], [1, 1], [-1, 1]] }];
+  const madeC = await ask(h, "create-room", {
+    sets: { base: true, picked: [1000, 0, 1, 2, 3] }, customCards: mine,
+  });
+  check("room accepts custom cards", madeC.ok && madeC.state.customCards.length === 1, madeC.state && madeC.state.customCards);
+  const guest = await ask(g, "join-room", { code: madeC.code });
+  check("guest receives the card definition",
+    guest.ok && guest.state.customCards.length === 1 && guest.state.customCards[0].k === "鷹",
+    guest.state && guest.state.customCards);
+  const inPlay = [...guest.state.board.redHand, ...guest.state.board.blueHand, guest.state.board.spare];
+  check("the custom card is actually dealt", inPlay.includes(1000), inPlay);
+  check("junk custom cards are rejected",
+    (await ask(await connect(), "create-room", { customCards: [{ id: 5, m: [[9, 9]] }] })).state.customCards.length === 0);
+  h.close(); g.close();
+
+  console.log("\n7. leaving for good");
   const leftForGood = once(a, "opponent-left");
   await ask(b2, "leave-room", {});
   const bye = await leftForGood;

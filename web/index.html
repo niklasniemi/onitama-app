@@ -49,8 +49,10 @@
 
   --cardH: 100px;
   --topH: 100px;
-  /* viewport-only, so the turn bar's height never depends on the card sizer */
-  --spareH: clamp(44px, 7.6vh, 66px);
+  --foot: 17px;
+  /* the pulled-out reserve card, and the drawer width that holds it */
+  --spare-card-w: clamp(94px, 29vw, 126px);
+  --spare-w: calc(var(--spare-card-w) + 30px);
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
 
@@ -112,12 +114,12 @@ button:focus-visible,
 #stage {
   position: relative;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   /* the column must be allowed to shrink, or the board canvas pins it open
      and the mat can never get smaller than its largest-ever size */
   grid-template-columns: minmax(0, 1fr);
   height: 100%;
-  padding: calc(var(--safe-t) + 4px) 8px calc(var(--safe-b) + 4px);
+  padding: calc(var(--safe-t) + 3px) 4px calc(var(--safe-b) + 3px);
   gap: 3px;
   opacity: 0;
   transition: opacity .5s ease, transform .5s cubic-bezier(.16, 1, .3, 1);
@@ -133,29 +135,98 @@ button:focus-visible,
   display: flex;
   align-items: center;
   gap: 8px;
-  /* Driven by --spareH alone, never by --cardH: the card sizer measures this
-     bar, so a dependency the other way round would be a feedback loop. */
-  height: calc(var(--spareH) + 6px);
+  height: 34px;
   padding: 0 2px;
 }
 
-/* the reserve card sits with the turn indicator: whose move it is, and what
-   they will hand over — the two things a player checks together */
-.spare-slot {
-  position: relative;
+/* --------------------------------------------------------------------------
+   Reserve card drawer
+
+   The fifth card decides what your opponent gets next, so it must be readable —
+   but it cannot afford a layout row of its own. It lives on the right edge: the
+   tab always shows which card it is, and pulling it out shows the whole thing.
+   -------------------------------------------------------------------------- */
+
+#spareDrawer {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 8;
   display: flex;
+  /* the tab stays pinned to the edge; the panel grows inwards from it */
+  flex-direction: row-reverse;
+  align-items: center;
+  pointer-events: none;
+}
+#spareDrawer * { pointer-events: auto; }
+
+.spare-tab {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 5px;
-  flex: 0 0 auto;
+  padding: 11px 5px 9px;
+  border-radius: 3px 0 0 3px;
+  background: linear-gradient(90deg, rgba(242, 227, 196, .95), rgba(217, 190, 145, .92));
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 95, 20, .55),
+    -3px 2px 10px -3px rgba(37, 26, 17, .55);
+  transition: transform .32s cubic-bezier(.16, 1, .3, 1), opacity .2s ease;
 }
-.spare-arrow {
+.spare-tab .tab-kanji {
+  font-size: 21px;
+  line-height: 1;
+  color: var(--ink);
+}
+.spare-tab .tab-kanji.two { font-size: 13px; }
+.spare-tab .tab-label {
+  font-family: var(--sans);
+  font-size: 8.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--gold-dk);
+  writing-mode: vertical-rl;
+}
+.spare-tab .tab-chev {
   font-size: 15px;
   line-height: 1;
   color: var(--gold-dk);
-  opacity: .85;
+  transition: transform .32s cubic-bezier(.16, 1, .3, 1);
+}
+#spareDrawer.open .spare-tab .tab-chev { transform: rotate(180deg); }
+
+.spare-panel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 0;
+  overflow: hidden;
+  opacity: 0;
+  padding: 0;
+  transition:
+    width .34s cubic-bezier(.16, 1, .3, 1),
+    opacity .26s ease,
+    padding .34s cubic-bezier(.16, 1, .3, 1);
+}
+#spareDrawer.open .spare-panel {
+  width: var(--spare-w);
+  opacity: 1;
+  padding: 7px 4px 7px 7px;
+}
+
+.spare-arrow {
+  flex: 0 0 auto;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--gold-dk);
   transition: transform .35s cubic-bezier(.16, 1, .3, 1);
 }
 .spare-arrow.up { transform: rotate(180deg); }
+
+.spare-holder { flex: 0 0 auto; }
+.spare-holder .card { flex: 0 0 auto; }
 
 .turn-chip {
   display: flex;
@@ -243,12 +314,12 @@ button:focus-visible,
 .hand {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   min-height: 0;
+  min-width: 0;
 }
-.hand.top { align-items: flex-start; }
 .hand.mirrored { transform: rotate(180deg); }
 
 /* the hand whose turn it is sits in a pool of lamplight */
@@ -265,13 +336,13 @@ button:focus-visible,
 
 .card {
   position: relative;
-  flex: 0 0 auto;
+  flex: 1 1 0;
+  min-width: 0;
   height: var(--cardH);
-  width: calc(var(--cardH) * 1.62);
   display: flex;
-  align-items: center;
-  padding: 5px 6px 5px 7px;
-  gap: 4px;
+  flex-direction: column;
+  padding: 5px 5px 3px;
+  gap: 2px;
   border-radius: 3px;
   color: var(--ink);
   background:
@@ -307,12 +378,12 @@ button:focus-visible,
   mix-blend-mode: multiply;
 }
 
-.card.top { height: var(--topH); width: calc(var(--topH) * 1.62); }
+.card.top { height: var(--topH); }
 .card.spare {
-  --h: var(--spareH);
-  height: var(--spareH);
-  width: calc(var(--spareH) * 1.62);
-  transform: rotate(-3deg);
+  --h: var(--spare-card-w);
+  --foot: calc(var(--spare-card-w) * .17);
+  width: var(--spare-card-w);
+  height: auto;
   box-shadow:
     inset 0 0 0 1px rgba(138, 95, 20, .65),
     inset 0 0 0 2.5px rgba(242, 227, 196, .55),
@@ -320,39 +391,22 @@ button:focus-visible,
     0 2px 3px rgba(37, 26, 17, .3),
     0 0 18px -4px rgba(192, 138, 36, .45);
 }
-/* the reserve card is identified by its kanji and its tag — no room for both */
-.card.spare .card-name,
-.card.spare .card-rule,
-.card.spare .card-seal { display: none; }
-.card.spare .card-kanji { font-size: calc(var(--h) * .34); }
-.card.spare .card-kanji.two { font-size: calc(var(--h) * .22); }
-.card.spare .card-left { justify-content: flex-start; padding-top: 2px; }
-.spare-tag {
-  position: absolute;
-  left: 5px;
-  bottom: 3px;
-  font-family: var(--sans);
-  font-size: calc(var(--h) * .11);
-  letter-spacing: .13em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: var(--gold-dk);
-  opacity: .85;
-}
+/* pulled out, the reserve card is a full card — name and all */
+.card.spare .card-diagram { max-height: none; }
+.card.spare .card-name { color: var(--gold-dk); }
 
 .card.playable { cursor: pointer; }
 .card.playable:active { transform: translateY(1px) scale(.985); }
 
-.card.dim {
-  filter: saturate(.55) brightness(.95);
-  opacity: .76;
-}
+/* The waiting hand is dimmed only enough to read as inactive: its patterns are
+   half the tactical picture and must stay legible. */
+.card.dim { opacity: .88; }
 .card.dim::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: 3px;
-  background: rgba(72, 56, 35, .08);
+  background: rgba(72, 56, 35, .05);
   pointer-events: none;
 }
 
@@ -385,61 +439,60 @@ button:focus-visible,
     0 0 30px 0 rgba(176, 48, 31, .7); }
 }
 
-.card-left {
+/* the move diagram is the card — everything else is a caption */
+.card-foot {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-start;
-  min-width: 0;
-  flex: 1 1 auto;
-  gap: 1px;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  flex: 0 0 auto;
+  padding: 0 1px;
+  border-top: 1px solid rgba(37, 26, 17, .18);
+  padding-top: 3px;
 }
 .card-kanji {
-  font-size: calc(var(--h) * .40);
-  line-height: .96;
+  font-size: var(--foot);
+  line-height: 1;
   font-weight: 500;
   letter-spacing: -.02em;
   color: var(--ink);
-  text-shadow: 0 0 1.5px rgba(37, 26, 17, .35), .5px .5px 0 rgba(37, 26, 17, .2);
+  flex: 0 0 auto;
+  text-shadow: 0 0 1.5px rgba(37, 26, 17, .3);
 }
-.card-kanji.two { font-size: calc(var(--h) * .27); letter-spacing: -.05em; }
+.card-kanji.two { font-size: calc(var(--foot) * .68); letter-spacing: -.05em; }
 .card-name {
+  flex: 1 1 auto;
   font-family: var(--sans);
-  font-size: calc(var(--h) * .096);
-  line-height: 1.15;
-  letter-spacing: .04em;
+  font-size: calc(var(--foot) * .52);
+  line-height: 1.1;
+  letter-spacing: .06em;
   text-transform: uppercase;
   font-weight: 700;
   color: var(--ink-2);
-  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.card-rule {
-  width: 62%;
-  height: 1px;
-  background: linear-gradient(90deg, var(--ink-30), transparent);
-  margin: 1px 0 2px;
-}
-
 .card-diagram {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-height: 0;
   aspect-ratio: 1;
-  height: 80%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
   display: block;
 }
 
 .card-seal {
-  position: absolute;
-  left: 5px;
-  bottom: 4px;
-  width: calc(var(--h) * .155);
-  height: calc(var(--h) * .155);
+  flex: 0 0 auto;
+  width: calc(var(--foot) * .8);
+  height: calc(var(--foot) * .8);
   display: grid;
   place-items: center;
-  font-size: calc(var(--h) * .105);
+  font-size: calc(var(--foot) * .56);
   line-height: 1;
+  align-self: center;
   color: rgba(255, 245, 226, .95);
   background: var(--seal);
   border-radius: 1px;
@@ -447,22 +500,45 @@ button:focus-visible,
   opacity: .9;
 }
 
-/* hint rail sitting with each hand, so both players can read it */
-.hand-note {
-  font-family: var(--sans);
-  font-size: 10.5px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--ink-55);
-  text-align: center;
-  height: 14px;
-  line-height: 14px;
+/* a card in flight between a hand and the reserve slot */
+.ghost-card {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  will-change: transform;
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 26, 17, .5),
+    inset 0 0 0 2.5px rgba(242, 227, 196, .5),
+    0 10px 26px -8px rgba(37, 26, 17, .7);
 }
-.hand-note.warn { color: var(--seal); }
 
-.hand-col { display: flex; flex-direction: column; gap: 2px; min-height: 0; min-width: 0; }
-.hand-col.mirrored { transform: rotate(180deg); }
+/* hint rail sitting with each hand, so both players can read it */
+/* Only appears when it has something non-obvious to say, and floats over the
+   mat so it never costs a layout row. */
+.status {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translate(-50%, 6px);
+  z-index: 6;
+  max-width: 92%;
+  padding: 6px 13px;
+  border-radius: 2px;
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  text-align: center;
+  color: #FDF3DC;
+  background: rgba(28, 19, 12, .88);
+  box-shadow: inset 0 0 0 1px rgba(192, 138, 36, .4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .3s cubic-bezier(.16, 1, .3, 1);
+}
+.status.on { opacity: 1; transform: translate(-50%, 0); }
+.status.warn { background: rgba(122, 30, 20, .93); box-shadow: inset 0 0 0 1px rgba(231, 194, 95, .45); }
 
 /* --------------------------------------------------------------------------
    Board
@@ -474,46 +550,10 @@ button:focus-visible,
   place-items: center;
   min-height: 0;
   min-width: 0;
+  /* the mat is centred in the space left of the reserve tab's gutter */
+  padding-right: 36px;
 }
 
-/* each school's surviving students — a filled stone drains to an empty slot */
-.fallen {
-  position: absolute;
-  left: 0; right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 22px;
-}
-.fallen.at-top { top: 2px; }
-.fallen.at-bot { bottom: 2px; }
-.fallen .slot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .18);
-  background: rgba(37, 26, 17, .06);
-  transition: background .4s ease, box-shadow .4s ease, transform .4s cubic-bezier(.16, 1, .3, 1);
-}
-.fallen .slot.alive { transform: scale(1.1); }
-.fallen .slot.alive.red {
-  background: radial-gradient(circle at 38% 32%, var(--crimson-lt), var(--crimson) 72%);
-  box-shadow: inset 0 0 0 1px rgba(110, 26, 18, .7), 0 1px 4px -1px rgba(37, 26, 17, .5);
-}
-.fallen .slot.alive.blue {
-  background: radial-gradient(circle at 38% 32%, var(--indigo-lt), var(--indigo) 72%);
-  box-shadow: inset 0 0 0 1px rgba(22, 39, 58, .7), 0 1px 4px -1px rgba(37, 26, 17, .5);
-}
-.fallen .tag {
-  font-family: var(--sans);
-  font-size: 9px;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  font-weight: 700;
-  color: rgba(37, 26, 17, .34);
-  margin-right: 3px;
-}
 #board {
   display: block;
   touch-action: none;
@@ -525,33 +565,6 @@ button:focus-visible,
 @keyframes matTurn {
   50% { opacity: .3; transform: scale(.985); }
 }
-
-/* --------------------------------------------------------------------------
-   Footer rail
-   -------------------------------------------------------------------------- */
-
-#rail {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 34px;
-}
-.rail-btn {
-  font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--ink-2);
-  padding: 7px 14px;
-  border-radius: 2px;
-  background: linear-gradient(180deg, rgba(242, 227, 196, .7), rgba(184, 153, 108, .5));
-  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .24);
-  transition: transform .16s ease, opacity .2s ease;
-}
-.rail-btn:active { transform: translateY(1px) scale(.97); }
-.rail-btn[disabled] { opacity: .35; pointer-events: none; }
 
 /* --------------------------------------------------------------------------
    Overlays — shared paper panel
@@ -1284,34 +1297,33 @@ button:focus-visible,
         <span class="dot"></span><span id="netCode">----</span>
       </div>
       <span class="spacer"></span>
-      <div class="spare-slot" id="spareSlot">
-        <span class="spare-arrow" id="spareArrow" aria-hidden="true">↓</span>
-      </div>
-      <span class="spacer"></span>
+      <button class="icon-btn" id="btnUndo" aria-label="Peru siirto">↶</button>
+      <button class="icon-btn" id="btnFlip" aria-label="Käännä lauta">⇅</button>
       <button class="icon-btn" id="btnSound" aria-label="Äänet">♪</button>
       <button class="icon-btn" id="btnMenu" aria-label="Valikko">☰</button>
     </div>
 
-    <div class="hand-col" id="topCol">
-      <div class="hand-note" id="topNote"></div>
-      <div class="hand top" id="topHand"></div>
-    </div>
+    <div class="hand top" id="topHand"></div>
 
     <div id="boardWrap">
-      <div class="fallen at-top" id="fallenTop"></div>
       <canvas id="board"></canvas>
-      <div class="fallen at-bot" id="fallenBot"></div>
+      <div class="status" id="statusLine"></div>
+
+      <!-- the reserve card: an edge tab that pulls out a full-size card -->
+      <div id="spareDrawer">
+        <button class="spare-tab" id="spareTab" aria-expanded="false" aria-controls="sparePanel">
+          <span class="tab-kanji" id="tabKanji">虎</span>
+          <span class="tab-label" id="tabLabel">Sivussa</span>
+          <span class="tab-chev" aria-hidden="true">‹</span>
+        </button>
+        <div class="spare-panel" id="sparePanel">
+          <span class="spare-arrow" id="spareArrow" aria-hidden="true">↓</span>
+          <div class="spare-holder" id="spareSlot"></div>
+        </div>
+      </div>
     </div>
 
-    <div class="hand-col" id="botCol">
-      <div class="hand" id="botHand"></div>
-      <div class="hand-note" id="botNote"></div>
-    </div>
-
-    <div id="rail">
-      <button class="rail-btn" id="btnUndo">Peru siirto</button>
-      <button class="rail-btn" id="btnFlip">Käännä lauta</button>
-    </div>
+    <div class="hand" id="botHand"></div>
   </div>
 
   <div id="banner" aria-hidden="true"><span class="b-in"></span></div>
@@ -1520,14 +1532,12 @@ const STR = {
     pass: "Anna puhelin",
     yourTurn: "Vuorosi. Katso lauta ja valitse kortti.",
     ready: "Olen valmis",
-    pickCard: "Valitse kortti",
     pickPiece: "Valitse nappula",
     pickPieceCard: "Valitse nappula — kortti lukittu",
     pickSquare: "Valitse ruutu",
     cardCannot: "Tällä kortilla ei siirtoja tuolla nappulalla",
     pieceStuck: "Tällä nappulalla ei ole siirtoja",
     noMoves: "Ei siirtoja — hylkää kortti",
-    waiting: "Odota vuoroasi",
     undo: "Peru siirto",
     flip: "Käännä lauta",
     wins: "voittaa",
@@ -1537,7 +1547,6 @@ const STR = {
     toMenu: "Valikkoon",
     turnsK: "Siirtoa",
     capsK: "Kaappausta",
-    whichCard: "Millä kortilla?",
     discarded: "Kortti hylätty",
     nothingToUndo: "Ei mitään perumista",
     aside: "Sivussa",
@@ -1556,7 +1565,6 @@ const STR = {
     waking: "Herätetään palvelinta — tämä voi kestää minuutin.",
     joining: "Liitytään huoneeseen…",
     yourMove: "Sinun vuorosi",
-    oppMove: "Vastustajan vuoro",
     sending: "Lähetetään siirtoa…",
     oppLeft: "Vastustaja poistui",
     oppLeftWait: "Vastustaja katkaisi yhteyden — odotetaan paluuta.",
@@ -1649,14 +1657,12 @@ const STR = {
     pass: "Pass the phone",
     yourTurn: "Your move. Read the mat and pick a card.",
     ready: "I'm ready",
-    pickCard: "Pick a card",
     pickPiece: "Pick a piece",
     pickPieceCard: "Pick a piece — card locked",
     pickSquare: "Pick a square",
     cardCannot: "That card cannot move that piece",
     pieceStuck: "That piece has no moves",
     noMoves: "No moves — discard a card",
-    waiting: "Wait your turn",
     undo: "Undo move",
     flip: "Turn the mat",
     wins: "wins",
@@ -1666,7 +1672,6 @@ const STR = {
     toMenu: "Main menu",
     turnsK: "Moves",
     capsK: "Captures",
-    whichCard: "With which card?",
     discarded: "Card discarded",
     nothingToUndo: "Nothing to undo",
     aside: "Aside",
@@ -1685,7 +1690,6 @@ const STR = {
     waking: "Waking the server — this can take a minute.",
     joining: "Joining the room…",
     yourMove: "Your move",
-    oppMove: "Opponent's move",
     sending: "Sending move…",
     oppLeft: "Opponent left",
     oppLeftWait: "Opponent dropped out — waiting for them to return.",
@@ -2488,10 +2492,8 @@ function stageChrome() {
   const st = $("#stage");
   const cs = getComputedStyle(st);
   const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
-  const gaps = (parseFloat(cs.rowGap) || 0) * 4;
-  const notes = 32;                       // the two hint lines and their gaps
-  return pad + gaps + notes +
-    ($("#turnbar").offsetHeight || 30) + ($("#rail").offsetHeight || 34);
+  const gaps = (parseFloat(cs.rowGap) || 0) * 3;
+  return pad + gaps + ($("#turnbar").offsetHeight || 34);
 }
 
 function layoutBoard() {
@@ -2500,7 +2502,7 @@ function layoutBoard() {
   // is a fixed-size child, so measuring its own parent would let the old size
   // hold the row open and the mat could never shrink.
   const availH = window.innerHeight - stageChrome() - cardH * 2;
-  const size = Math.max(100, Math.floor(Math.min(window.innerWidth - 16, availH)));
+  const size = Math.max(100, Math.floor(Math.min(window.innerWidth - 8 - TAB_GUTTER, availH)));
   if (size === B.size && B.mat) return;
   B.size = size;
   B.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -2982,7 +2984,6 @@ function applyLocalResult(res, cardId, src, dst) {
   const oldSpare = S.board.spare;
   pushHistory();
 
-  const playedSlot = handOf(S.board, S.board.turn).indexOf(cardId);
   S.board = res.board;
   S.turns += 1;
   if (res.captured) S.captures += 1;
@@ -2998,7 +2999,7 @@ function applyLocalResult(res, cardId, src, dst) {
   Audio_.play("card");
   if (!res.captured) setTimeout(() => Audio_.play("place"), RM ? 0 : 260);
   buzz(12);
-  renderHands({ flipFrom: { slot: playedSlot, side: mover.side, oldSpare, playedCard: cardId } });
+  renderHands({ side: mover.side, oldSpare, playedCard: cardId });
   renderChrome();
 }
 
@@ -3303,14 +3304,12 @@ function cardEl(cardId, side, opt) {
   const name = S.lang === "fi" ? c.fi : c.en;
   el.setAttribute("aria-label", name + " — " + DIR[c.d]);
   el.innerHTML =
-    '<span class="card-left">' +
-      '<span class="card-kanji' + (c.k.length > 1 ? " two" : "") + '">' + c.k + "</span>" +
-      '<span class="card-rule"></span>' +
-      '<span class="card-name">' + name + "</span>" +
-    "</span>" +
     diagramSvg(cardId, o.spare ? null : side) +
-    (o.spare ? '<span class="spare-tag">' + L.aside + "</span>"
-             : '<span class="card-seal">' + DIR[c.d] + "</span>");
+    '<span class="card-foot">' +
+      '<span class="card-kanji' + (c.k.length > 1 ? " two" : "") + '">' + c.k + "</span>" +
+      '<span class="card-name">' + name + "</span>" +
+      '<span class="card-seal">' + DIR[c.d] + "</span>" +
+    "</span>";
   return el;
 }
 
@@ -3322,46 +3321,35 @@ const CARD_RATIO = 1.62;
 const TOP_SCALE = 0.7;
 const SPARE_SCALE = 0.56;
 
-const MIN_BOARD = 110;
+const MIN_BOARD = 150;
+const FOOT_MIN = 13, FOOT_MAX = 21;
+const TAB_GUTTER = 36;        // reserved down the right edge for the reserve tab
 
+/**
+ * Cards fill the width edge to edge — two per row, sharing the space equally —
+ * and take whatever height is left once the mat has its square. The diagram is
+ * the card, so the taller a card can be, the more readable the pattern.
+ */
 function sizeCards() {
   const vw = window.innerWidth, vh = window.innerHeight;
-  // Both hands are now the same size — the opponent's cards carry the same
-  // tactical weight as your own, so they get the same reading room.
-  const byWidth = (vw - 23) / (CARD_RATIO * 2);
-  // ...and two full rows plus a usable mat must fit down the screen, or a short
-  // viewport (a phone turned sideways) pushes the player's own hand off it
-  const byHeight = (vh - stageChrome() - MIN_BOARD) / 2;
-  const h = Math.floor(Math.max(44, Math.min(byWidth, byHeight, clamp(vh * 0.125, 74, 112))));
+  const room = vh - stageChrome();
+  // the mat is square and width-bound, so it fixes what the two rows can have
+  const board = Math.min(vw - 8 - TAB_GUTTER, room - 2 * 56);
+  const h = Math.floor(clamp((room - board) / 2, 56, Math.max(56, vw * 0.56)));
   cardH = h;
+  const cardW = (vw - 8 - 6) / 2;
   const root = document.documentElement.style;
   root.setProperty("--cardH", h + "px");
   root.setProperty("--topH", h + "px");
+  // caption scales with the card, but stays legible at either extreme
+  root.setProperty("--foot", clamp(Math.min(h, cardW) * 0.15, FOOT_MIN, FOOT_MAX).toFixed(1) + "px");
   document.querySelectorAll(".card").forEach((el) => {
     if (el.classList.contains("spare")) return;
     el.style.setProperty("--h", h + "px");
   });
 }
 
-/** Each school's surviving students, shown beside their end of the mat. */
-function renderFallen() {
-  const b = S.board;
-  if (!b) return;
-  const build = (el, side) => {
-    const alive = pawnsOf(b, side).filter(Boolean).length;
-    let html = '<span class="tag">' + L.students + "</span>";
-    for (let i = 0; i < 4; i++) {
-      html += '<span class="slot' + (i < alive ? " alive " + side : "") + '"></span>';
-    }
-    el.innerHTML = html;
-  };
-  build($("#fallenTop"), topSide());
-  build($("#fallenBot"), S.viewSide);
-  // in side-by-side the far strip belongs to the far player, so turn it round
-  $("#fallenTop").style.transform = S.mode === "side" ? "rotate(180deg)" : "";
-}
-
-/** Which school's cards sit on top / bottom of the screen. */
+/** Which school's cards sit at the top of the screen. */
 const topSide = () => other(S.viewSide);
 
 function renderHands(flip) {
@@ -3387,18 +3375,11 @@ function renderHands(flip) {
     el.dataset.owner = tSide;
     top.appendChild(el);
   }
-  // The reserve card lives in the turn bar, so both hands get equal width.
-  // It flows to whoever is about to move, and the arrow says so.
-  const slot = $("#spareSlot");
-  const oldSpareEl = slot.querySelector(".card");
-  if (oldSpareEl) oldSpareEl.remove();
-  const spare = cardEl(b.spare, null, { spare: true });
-  spare.dataset.slot = "spare";
-  spare.disabled = true;
-  slot.appendChild(spare);
-  $("#spareArrow").classList.toggle("up", S.viewSide !== acting);
+  // The reserve card lives in a drawer on the right edge. It flows to whoever
+  // is about to move, and the arrow says which way.
+  renderSpare(b, acting);
 
-  $("#topCol").classList.toggle("mirrored", S.mode === "side");
+  top.classList.toggle("mirrored", S.mode === "side");
   top.classList.toggle("active", topPlayable);
 
   // ----- bottom row: the near school -----
@@ -3419,49 +3400,99 @@ function renderHands(flip) {
   bot.classList.toggle("active", botPlayable);
 
   sizeCards();
-  renderFallen();
   if (flip && prevRects) flipCards(prevRects, flip);
 }
 
-/** Record card positions so the swap with the spare can be animated. */
+/** The reserve card, in the edge tab and in the pulled-out panel. */
+function renderSpare(b, acting) {
+  const slot = $("#spareSlot");
+  const old = slot.querySelector(".card");
+  if (old) old.remove();
+  const spare = cardEl(b.spare, null, { spare: true });
+  spare.dataset.slot = "spare";
+  spare.disabled = true;
+  slot.appendChild(spare);
+
+  const k = CARDS[b.spare].k;
+  const tab = $("#tabKanji");
+  tab.textContent = k;
+  tab.classList.toggle("two", k.length > 1);
+  $("#tabLabel").textContent = L.aside;
+  $("#spareArrow").classList.toggle("up", S.viewSide !== acting);
+}
+
+/** Record card positions so the swap with the reserve can be animated. */
 function captureRects() {
   const map = new Map();
-  document.querySelectorAll("#topHand .card, #botHand .card, #spareSlot .card").forEach((el) => {
-    const key = el.dataset.slot === "spare" ? "spare" : (el.dataset.owner + ":" + el.dataset.card);
-    map.set(key, el.getBoundingClientRect());
+  document.querySelectorAll("#topHand .card, #botHand .card").forEach((el) => {
+    map.set(el.dataset.owner + ":" + el.dataset.card, el.getBoundingClientRect());
   });
+  const panelCard = $("#spareSlot .card");
+  // closed, the reserve card's "place" on screen is the edge tab
+  map.set("spare", (spareOpen() && panelCard ? panelCard : $("#spareTab")).getBoundingClientRect());
   return map;
 }
 
-/** FLIP: the played card slides to the spare slot, the spare slides into hand. */
+const spareOpen = () => $("#spareDrawer").classList.contains("open");
+
+function toggleSpare(force) {
+  const d = $("#spareDrawer");
+  const open = force == null ? !d.classList.contains("open") : !!force;
+  d.classList.toggle("open", open);
+  $("#spareTab").setAttribute("aria-expanded", String(open));
+  Audio_.play("card");
+}
+
+/**
+ * Show the played card travelling out to the side of the mat and the reserve
+ * coming back into the hand it left. Flying clones rather than moving the real
+ * elements, so the hands underneath are already correct throughout.
+ */
 function flipCards(prev, info) {
   if (RM) return;
-  const spareEl = $('#spareSlot .card[data-slot="spare"]');
-  const played = prev.get(info.side + ":" + info.playedCard);
-  if (spareEl && played) {
-    const now = spareEl.getBoundingClientRect();
-    animateFrom(spareEl, played, now, 460);
+  const from = prev.get(info.side + ":" + info.playedCard);
+  const spareFrom = prev.get("spare");
+  const panelCard = $("#spareSlot .card");
+  const target = (spareOpen() && panelCard ? panelCard : $("#spareTab")).getBoundingClientRect();
+
+  if (from) {
+    const ghost = cardEl(info.playedCard, info.side, {});
+    ghost.style.setProperty("--h", Math.round(from.height) + "px");
+    flyGhost(ghost, from, target, 520, 8);
   }
-  const arrived = document.querySelector('.card[data-card="' + info.oldSpare + '"][data-owner="' + info.side + '"]');
-  const from = prev.get("spare");
-  if (arrived && from) {
-    animateFrom(arrived, from, arrived.getBoundingClientRect(), 460);
+
+  const arrived = document.querySelector(
+    '.card[data-card="' + info.oldSpare + '"][data-owner="' + info.side + '"]');
+  if (arrived && spareFrom) {
+    const to = arrived.getBoundingClientRect();
+    const ghost = cardEl(info.oldSpare, info.side, {});
+    ghost.style.setProperty("--h", Math.round(to.height) + "px");
+    arrived.style.opacity = "0";
+    flyGhost(ghost, spareFrom, to, 520, -6, () => { arrived.style.opacity = ""; });
   }
 }
 
-function animateFrom(el, from, to, dur) {
-  const dx = from.left + from.width / 2 - (to.left + to.width / 2);
-  const dy = from.top + from.height / 2 - (to.top + to.height / 2);
-  const sc = from.height / Math.max(1, to.height);
-  const spare = el.classList.contains("spare");
-  const base = spare ? " rotate(-3deg)" : "";
-  el.animate(
-    [
-      { transform: "translate(" + dx + "px," + dy + "px) scale(" + sc + ")", opacity: 0.55 },
-      { transform: "translate(0,0) scale(1)" + base, opacity: 1 },
-    ],
-    { duration: dur, easing: "cubic-bezier(.2,.9,.25,1)", fill: "none" }
-  );
+/** Animate a detached copy of a card from one screen rect to another. */
+function flyGhost(ghost, from, to, dur, tilt, done) {
+  ghost.classList.add("ghost-card");
+  ghost.style.left = from.left + "px";
+  ghost.style.top = from.top + "px";
+  ghost.style.width = from.width + "px";
+  ghost.style.height = from.height + "px";
+  document.body.appendChild(ghost);
+
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  const sc = Math.min(to.width / Math.max(1, from.width), to.height / Math.max(1, from.height));
+
+  const anim = ghost.animate([
+    { transform: "translate(0,0) scale(1) rotate(0deg)", opacity: 1 },
+    { transform: "translate(" + dx * 0.55 + "px," + (dy * 0.45 - 14) + "px) scale(" +
+        (1 + (sc - 1) * 0.35) + ") rotate(" + tilt + "deg)", opacity: 1, offset: 0.55 },
+    { transform: "translate(" + dx + "px," + dy + "px) scale(" + sc + ") rotate(0deg)", opacity: 0.9 },
+  ], { duration: dur, easing: "cubic-bezier(.3,.8,.2,1)", fill: "forwards" });
+
+  anim.onfinish = () => { ghost.remove(); if (done) done(); };
 }
 
 function renderChrome() {
@@ -3479,34 +3510,31 @@ function renderChrome() {
   else if (!S.selSrc) hint = S.selCard == null ? L.pickPiece : L.pickPieceCard;
   else hint = L.pickSquare;
 
-  const near = $("#botNote"), far = $("#topNote");
-  const nearActive = S.viewSide === turn;
-  if (isOnline()) {
-    // one seat, one hint line: say plainly whether the board is waiting on you
-    if (!S.net.opponent) near.textContent = L.oppLeftWait;
-    else if (S.net.link !== "live") near.textContent = L.reconnecting;
-    else if (S.net.pending) near.textContent = L.sending;
-    else near.textContent = nearActive ? hint : L.oppMove;
-    near.classList.toggle("warn", (nearActive && mustDiscard) || !S.net.opponent || S.net.link !== "live");
-  } else {
-    near.textContent = nearActive ? hint : L.waiting;
-    near.classList.toggle("warn", nearActive && mustDiscard);
+  // The board already shows whose move it is and what can move, so the status
+  // line only speaks up about things the board cannot say.
+  let status = "", warn = false;
+  if (mustDiscard) { status = L.noMoves; warn = true; }
+  else if (isOnline()) {
+    if (!S.net.opponent) { status = L.oppLeftWait; warn = true; }
+    else if (S.net.link !== "live") { status = L.reconnecting; warn = true; }
+    else if (S.net.pending) status = L.sending;
   }
-  if (S.mode === "side") {
-    far.textContent = nearActive ? L.waiting : hint;
-    far.classList.toggle("warn", !nearActive && mustDiscard);
-  } else {
-    far.textContent = "";
-    far.classList.remove("warn");
-  }
+  setStatusLine(status, warn);
 
-  $("#botHand").style.opacity = nearActive || S.mode === "pass" ? "1" : ".97";
   $("#btnUndo").disabled = isOnline() || !S.history.length;
-  $("#btnUndo").textContent = L.undo;
-  $("#btnFlip").textContent = L.flip;
-  $("#btnFlip").style.display = S.mode === "side" ? "" : "none";
+  $("#btnUndo").hidden = isOnline();
+  $("#btnUndo").setAttribute("aria-label", L.undo);
+  $("#btnFlip").setAttribute("aria-label", L.flip);
+  $("#btnFlip").hidden = S.mode !== "side";
   $("#btnSound").classList.toggle("off", !S.sound);
   renderNetChip();
+}
+
+function setStatusLine(text, warn) {
+  const el = $("#statusLine");
+  if (text) el.textContent = text;
+  el.classList.toggle("on", !!text);
+  el.classList.toggle("warn", !!warn);
 }
 
 /** Room code plus a link-health dot in the turn bar. */
@@ -3625,7 +3653,7 @@ function startGame() {
   // board must never be left empty waiting for a paint
   layoutBoard();
   renderAll();
-  requestAnimationFrame(() => { layoutBoard(); renderFallen(); });
+  requestAnimationFrame(() => { layoutBoard(); });
 }
 
 /* ==========================================================================
@@ -3680,9 +3708,23 @@ function enterOnlineBoard() {
   showBanner();
 }
 
+/**
+ * Install the cards a room plays with. The host's custom cards travel with the
+ * room, so the guest can render them even though they never drew them; on a
+ * clash of ids the room's definition wins, since that is what the server is
+ * validating against. Leaving restores this device's own deck.
+ */
+function useRoomCards(roomCards) {
+  if (!roomCards || !roomCards.length) { Onitama.setCustomCards(P.custom); return; }
+  const byId = new Map(P.custom.map((c) => [c.id, c]));
+  for (const c of roomCards) byId.set(c.id, c);
+  Onitama.setCustomCards([...byId.values()]);
+}
+
 /** The one place authoritative state lands. */
 function applyServerState(p) {
   if (!p || !p.board || !S.net.on) return;
+  useRoomCards(p.customCards);
 
   const first = !S.net.synced;
   const prevTurns = S.turns;
@@ -3719,7 +3761,7 @@ function applyServerState(p) {
     startMoveAnim(lm);
     Audio_.play("card");
     if (!lm.captured) setTimeout(() => Audio_.play("place"), RM ? 0 : 260);
-    renderHands({ flipFrom: { side: lm.side, oldSpare, playedCard: lm.card } });
+    renderHands({ side: lm.side, oldSpare, playedCard: lm.card });
     renderChrome();
     return;                    // finishAnim carries on into the next turn
   }
@@ -3857,6 +3899,7 @@ function onlineJoin(code) {
 function leaveOnline() {
   Net.leave();
   resetNet();
+  useRoomCards(null);          // back to this device's own deck
   hide("#lobby");
   clearTimeout(S.animTimer);
   S.anim = null;
@@ -4421,6 +4464,7 @@ function bind() {
     if (e.key === "Enter") { e.preventDefault(); onlineJoin(room.value); }
   });
   $("#btnUndo").addEventListener("click", undo);
+  $("#spareTab").addEventListener("click", () => toggleSpare());
   $("#btnFlip").addEventListener("click", () => {
     S.viewSide = other(S.viewSide);
     S.selSrc = null;
@@ -4476,6 +4520,10 @@ function bind() {
   };
   window.addEventListener("resize", relayout);
   window.addEventListener("orientationchange", relayout);
+  // A resize event can be missed — a rotation, the URL bar collapsing, a
+  // desktop window drag. Observing the box itself is the reliable signal.
+  if (window.ResizeObserver) new ResizeObserver(relayout).observe(document.documentElement);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", relayout);
   document.addEventListener("visibilitychange", () => { paused = document.hidden; });
 }
 
