@@ -1,0 +1,4516 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1" />
+<meta name="theme-color" content="#C0A176" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Onitama — Mestarin polku</title>
+<style>
+/* ==========================================================================
+   Onitama — mobile visualisation
+   One committed visual world: an aged scroll in warm sumi ink and gold leaf,
+   after the box art. Deliberately single-theme, the way a game screen is.
+   ========================================================================== */
+
+:root {
+  /* ---- ground ---- */
+  --paper-1: #F2E3C4;
+  --paper-2: #D9BE91;
+  --paper-3: #B8996C;
+  --paper-edge: #97794F;
+
+  /* ---- ink (warm, brown-biased neutral — never a flat grey) ---- */
+  --ink: #251A11;
+  --ink-2: #4C3823;
+  --ink-3: #6F5738;
+  --ink-15: rgba(37, 26, 17, .15);
+  --ink-30: rgba(37, 26, 17, .30);
+  --ink-55: rgba(37, 26, 17, .55);
+
+  /* ---- leaf ---- */
+  --gold: #C08A24;
+  --gold-lt: #E7C25F;
+  --gold-dk: #8A5F14;
+
+  /* ---- the two schools ---- */
+  --crimson: #9E2B1E;
+  --crimson-lt: #C4472F;
+  --indigo: #26405E;
+  --indigo-lt: #46688F;
+  --seal: #B0301F;
+
+  --serif: "Hiragino Mincho ProN", "Yu Mincho", YuMincho, "Songti SC",
+           "Noto Serif JP", "Noto Serif CJK JP", "Source Han Serif",
+           Georgia, "Times New Roman", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue",
+          Arial, sans-serif;
+
+  --cardH: 100px;
+  --topH: 100px;
+  /* viewport-only, so the turn bar's height never depends on the card sizer */
+  --spareH: clamp(44px, 7.6vh, 66px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #A8895D;
+  color: var(--ink);
+  font-family: var(--serif);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body { touch-action: manipulation; }
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--gold-lt);
+  outline-offset: 3px;
+}
+
+/* --------------------------------------------------------------------------
+   Shell
+   -------------------------------------------------------------------------- */
+
+#app {
+  position: fixed;
+  inset: 0;
+  display: grid;
+}
+
+#backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* rendered at half resolution — the upscale doubles as the ink-wash blur */
+  image-rendering: auto;
+}
+
+#stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  /* the column must be allowed to shrink, or the board canvas pins it open
+     and the mat can never get smaller than its largest-ever size */
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  padding: calc(var(--safe-t) + 4px) 8px calc(var(--safe-b) + 4px);
+  gap: 3px;
+  opacity: 0;
+  transition: opacity .5s ease, transform .5s cubic-bezier(.16, 1, .3, 1);
+  transform: scale(.985);
+}
+#stage.live { opacity: 1; transform: none; }
+
+/* --------------------------------------------------------------------------
+   Turn bar
+   -------------------------------------------------------------------------- */
+
+#turnbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Driven by --spareH alone, never by --cardH: the card sizer measures this
+     bar, so a dependency the other way round would be a feedback loop. */
+  height: calc(var(--spareH) + 6px);
+  padding: 0 2px;
+}
+
+/* the reserve card sits with the turn indicator: whose move it is, and what
+   they will hand over — the two things a player checks together */
+.spare-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+.spare-arrow {
+  font-size: 15px;
+  line-height: 1;
+  color: var(--gold-dk);
+  opacity: .85;
+  transition: transform .35s cubic-bezier(.16, 1, .3, 1);
+}
+.spare-arrow.up { transform: rotate(180deg); }
+
+.turn-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 11px 3px 5px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(242, 227, 196, .82), rgba(217, 190, 145, .7));
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .22), 0 1px 0 rgba(242, 227, 196, .5);
+  transition: box-shadow .3s ease;
+}
+.turn-chip .glyph {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--paper-1);
+  border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(37, 26, 17, .35);
+}
+.turn-chip.red .glyph { background: var(--crimson); }
+.turn-chip.blue .glyph { background: var(--indigo); }
+.turn-chip .who {
+  font-size: 12.5px;
+  letter-spacing: .09em;
+  font-weight: 600;
+}
+.turn-chip.red { box-shadow: inset 0 0 0 1px rgba(158, 43, 30, .5), 0 0 14px rgba(158, 43, 30, .18); }
+.turn-chip.blue { box-shadow: inset 0 0 0 1px rgba(38, 64, 94, .5), 0 0 14px rgba(38, 64, 94, .2); }
+
+#turnbar .spacer { flex: 1; }
+
+/* room code and link health, kept small — it is reference, not the game */
+.net-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 2px;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  color: var(--ink-2);
+  background: rgba(242, 227, 196, .55);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .18);
+}
+.net-chip[hidden] { display: none; }
+.net-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4E7A3E;
+  box-shadow: 0 0 7px rgba(78, 122, 62, .9);
+  transition: background .3s ease, box-shadow .3s ease;
+}
+.net-chip.warn .dot { background: var(--gold); box-shadow: 0 0 7px rgba(192, 138, 36, .9); }
+.net-chip.down .dot { background: var(--seal); box-shadow: 0 0 7px rgba(176, 48, 31, .9); }
+.net-chip.warn .dot,
+.net-chip.down .dot { animation: pulseDot 1.1s ease-in-out infinite; }
+@keyframes pulseDot { 50% { opacity: .3; } }
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-family: var(--sans);
+  background: radial-gradient(circle at 50% 35%, rgba(242, 227, 196, .8), rgba(184, 153, 108, .55));
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .2);
+  transition: transform .16s ease, box-shadow .2s ease;
+}
+.icon-btn:active { transform: scale(.9); }
+.icon-btn.off { color: var(--ink-30); }
+
+/* --------------------------------------------------------------------------
+   Hands
+   -------------------------------------------------------------------------- */
+
+.hand {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 0;
+}
+.hand.top { align-items: flex-start; }
+.hand.mirrored { transform: rotate(180deg); }
+
+/* the hand whose turn it is sits in a pool of lamplight */
+.hand::before {
+  content: "";
+  position: absolute;
+  inset: -10px -6px;
+  background: radial-gradient(60% 70% at 50% 55%, rgba(231, 194, 95, .26), rgba(231, 194, 95, 0) 72%);
+  opacity: 0;
+  transition: opacity .45s ease;
+  pointer-events: none;
+}
+.hand.active::before { opacity: 1; }
+
+.card {
+  position: relative;
+  flex: 0 0 auto;
+  height: var(--cardH);
+  width: calc(var(--cardH) * 1.62);
+  display: flex;
+  align-items: center;
+  padding: 5px 6px 5px 7px;
+  gap: 4px;
+  border-radius: 3px;
+  color: var(--ink);
+  background:
+    radial-gradient(120% 100% at 12% 0%, rgba(255, 248, 230, .85), rgba(255, 248, 230, 0) 60%),
+    linear-gradient(168deg, var(--paper-1) 0%, #E9D6B2 46%, var(--paper-2) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 26, 17, .5),
+    inset 0 0 0 2.5px rgba(242, 227, 196, .5),
+    inset 0 0 0 3.5px rgba(192, 138, 36, .35),
+    inset 0 -14px 22px -14px rgba(37, 26, 17, .3),
+    0 2px 3px rgba(37, 26, 17, .28),
+    0 8px 14px -8px rgba(37, 26, 17, .4);
+  transition:
+    transform .22s cubic-bezier(.16, 1, .3, 1),
+    box-shadow .22s ease,
+    filter .25s ease,
+    opacity .25s ease;
+  touch-action: manipulation;
+  will-change: transform;
+}
+
+/* fibre grain */
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  pointer-events: none;
+  opacity: .5;
+  background-image:
+    repeating-linear-gradient(94deg, rgba(37, 26, 17, .05) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(2deg, rgba(37, 26, 17, .035) 0 1px, transparent 1px 6px);
+  mix-blend-mode: multiply;
+}
+
+.card.top { height: var(--topH); width: calc(var(--topH) * 1.62); }
+.card.spare {
+  --h: var(--spareH);
+  height: var(--spareH);
+  width: calc(var(--spareH) * 1.62);
+  transform: rotate(-3deg);
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 95, 20, .65),
+    inset 0 0 0 2.5px rgba(242, 227, 196, .55),
+    inset 0 0 0 4px rgba(192, 138, 36, .5),
+    0 2px 3px rgba(37, 26, 17, .3),
+    0 0 18px -4px rgba(192, 138, 36, .45);
+}
+/* the reserve card is identified by its kanji and its tag — no room for both */
+.card.spare .card-name,
+.card.spare .card-rule,
+.card.spare .card-seal { display: none; }
+.card.spare .card-kanji { font-size: calc(var(--h) * .34); }
+.card.spare .card-kanji.two { font-size: calc(var(--h) * .22); }
+.card.spare .card-left { justify-content: flex-start; padding-top: 2px; }
+.spare-tag {
+  position: absolute;
+  left: 5px;
+  bottom: 3px;
+  font-family: var(--sans);
+  font-size: calc(var(--h) * .11);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--gold-dk);
+  opacity: .85;
+}
+
+.card.playable { cursor: pointer; }
+.card.playable:active { transform: translateY(1px) scale(.985); }
+
+.card.dim {
+  filter: saturate(.55) brightness(.95);
+  opacity: .76;
+}
+.card.dim::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: rgba(72, 56, 35, .08);
+  pointer-events: none;
+}
+
+.card.sel {
+  transform: translateY(-7px) scale(1.035);
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 95, 20, .8),
+    inset 0 0 0 3px rgba(255, 250, 232, .7),
+    inset 0 0 0 4.5px rgba(192, 138, 36, .8),
+    0 3px 4px rgba(37, 26, 17, .3),
+    0 16px 26px -10px rgba(37, 26, 17, .5),
+    0 0 26px -2px rgba(231, 194, 95, .65);
+  z-index: 3;
+}
+.hand.mirrored .card.sel { transform: translateY(-7px) scale(1.035); }
+
+.card.must-discard {
+  box-shadow:
+    inset 0 0 0 1px rgba(176, 48, 31, .75),
+    inset 0 0 0 3px rgba(255, 250, 232, .55),
+    0 2px 3px rgba(37, 26, 17, .28),
+    0 0 22px -4px rgba(176, 48, 31, .5);
+  animation: pulseDiscard 1.5s ease-in-out infinite;
+}
+@keyframes pulseDiscard {
+  50% { box-shadow:
+    inset 0 0 0 1px rgba(176, 48, 31, .95),
+    inset 0 0 0 3px rgba(255, 250, 232, .55),
+    0 2px 3px rgba(37, 26, 17, .28),
+    0 0 30px 0 rgba(176, 48, 31, .7); }
+}
+
+.card-left {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 1px;
+}
+.card-kanji {
+  font-size: calc(var(--h) * .40);
+  line-height: .96;
+  font-weight: 500;
+  letter-spacing: -.02em;
+  color: var(--ink);
+  text-shadow: 0 0 1.5px rgba(37, 26, 17, .35), .5px .5px 0 rgba(37, 26, 17, .2);
+}
+.card-kanji.two { font-size: calc(var(--h) * .27); letter-spacing: -.05em; }
+.card-name {
+  font-family: var(--sans);
+  font-size: calc(var(--h) * .096);
+  line-height: 1.15;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-rule {
+  width: 62%;
+  height: 1px;
+  background: linear-gradient(90deg, var(--ink-30), transparent);
+  margin: 1px 0 2px;
+}
+
+.card-diagram {
+  flex: 0 0 auto;
+  aspect-ratio: 1;
+  height: 80%;
+  display: block;
+}
+
+.card-seal {
+  position: absolute;
+  left: 5px;
+  bottom: 4px;
+  width: calc(var(--h) * .155);
+  height: calc(var(--h) * .155);
+  display: grid;
+  place-items: center;
+  font-size: calc(var(--h) * .105);
+  line-height: 1;
+  color: rgba(255, 245, 226, .95);
+  background: var(--seal);
+  border-radius: 1px;
+  box-shadow: 0 0 0 .5px rgba(112, 26, 16, .8), 0 1px 1px rgba(37, 26, 17, .25);
+  opacity: .9;
+}
+
+/* hint rail sitting with each hand, so both players can read it */
+.hand-note {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-55);
+  text-align: center;
+  height: 14px;
+  line-height: 14px;
+}
+.hand-note.warn { color: var(--seal); }
+
+.hand-col { display: flex; flex-direction: column; gap: 2px; min-height: 0; min-width: 0; }
+.hand-col.mirrored { transform: rotate(180deg); }
+
+/* --------------------------------------------------------------------------
+   Board
+   -------------------------------------------------------------------------- */
+
+#boardWrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* each school's surviving students — a filled stone drains to an empty slot */
+.fallen {
+  position: absolute;
+  left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 22px;
+}
+.fallen.at-top { top: 2px; }
+.fallen.at-bot { bottom: 2px; }
+.fallen .slot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .18);
+  background: rgba(37, 26, 17, .06);
+  transition: background .4s ease, box-shadow .4s ease, transform .4s cubic-bezier(.16, 1, .3, 1);
+}
+.fallen .slot.alive { transform: scale(1.1); }
+.fallen .slot.alive.red {
+  background: radial-gradient(circle at 38% 32%, var(--crimson-lt), var(--crimson) 72%);
+  box-shadow: inset 0 0 0 1px rgba(110, 26, 18, .7), 0 1px 4px -1px rgba(37, 26, 17, .5);
+}
+.fallen .slot.alive.blue {
+  background: radial-gradient(circle at 38% 32%, var(--indigo-lt), var(--indigo) 72%);
+  box-shadow: inset 0 0 0 1px rgba(22, 39, 58, .7), 0 1px 4px -1px rgba(37, 26, 17, .5);
+}
+.fallen .tag {
+  font-family: var(--sans);
+  font-size: 9px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: rgba(37, 26, 17, .34);
+  margin-right: 3px;
+}
+#board {
+  display: block;
+  touch-action: none;
+  border-radius: 2px;
+  filter: drop-shadow(0 10px 20px rgba(37, 26, 17, .38));
+}
+/* the mat turning to face the other player — the only "your turn" cue needed */
+#board.turning { animation: matTurn .34s ease-in-out; }
+@keyframes matTurn {
+  50% { opacity: .3; transform: scale(.985); }
+}
+
+/* --------------------------------------------------------------------------
+   Footer rail
+   -------------------------------------------------------------------------- */
+
+#rail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+}
+.rail-btn {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 7px 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(242, 227, 196, .7), rgba(184, 153, 108, .5));
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .24);
+  transition: transform .16s ease, opacity .2s ease;
+}
+.rail-btn:active { transform: translateY(1px) scale(.97); }
+.rail-btn[disabled] { opacity: .35; pointer-events: none; }
+
+/* --------------------------------------------------------------------------
+   Overlays — shared paper panel
+   -------------------------------------------------------------------------- */
+
+.sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  place-items: center;
+  padding: calc(var(--safe-t) + 14px) 16px calc(var(--safe-b) + 14px);
+  background:
+    radial-gradient(140% 90% at 50% 0%, rgba(37, 26, 17, .3), rgba(20, 13, 8, .78));
+  backdrop-filter: blur(7px) saturate(.85);
+  -webkit-backdrop-filter: blur(7px) saturate(.85);
+}
+.sheet.on { display: grid; animation: sheetIn .38s ease both; }
+@keyframes sheetIn { from { opacity: 0; } }
+
+.panel {
+  position: relative;
+  width: min(370px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 20px 20px;
+  border-radius: 2px;
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(255, 250, 235, .9), rgba(255, 250, 235, 0) 70%),
+    linear-gradient(172deg, var(--paper-1), #E4CFA8 55%, var(--paper-2));
+  box-shadow:
+    inset 0 0 0 1px rgba(37, 26, 17, .45),
+    inset 0 0 0 3px rgba(242, 227, 196, .45),
+    inset 0 0 0 4px rgba(192, 138, 36, .3),
+    0 26px 60px -18px rgba(0, 0, 0, .8);
+  animation: panelIn .5s cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes panelIn { from { transform: translateY(16px) scale(.97); opacity: 0; } }
+
+/* torn top and bottom edge of the scroll */
+.panel::before, .panel::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 5px;
+  background: repeating-linear-gradient(90deg,
+    rgba(151, 121, 79, .55) 0 3px, transparent 3px 7px, rgba(151, 121, 79, .3) 7px 9px, transparent 9px 13px);
+  opacity: .7;
+  pointer-events: none;
+}
+.panel::before { top: 0; }
+.panel::after { bottom: 0; transform: scaleY(-1); }
+
+.eyebrow {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--gold-dk);
+  text-align: center;
+}
+.panel h1 {
+  margin: 4px 0 0;
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: .04em;
+  text-align: center;
+  text-wrap: balance;
+}
+.panel h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 500;
+  text-align: center;
+  text-wrap: balance;
+}
+.panel .lede {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--ink-2);
+  text-wrap: balance;
+}
+
+.enso-mark {
+  display: block;
+  width: 96px;
+  height: 96px;
+  margin: 2px auto 0;
+}
+
+.field { margin-top: 18px; }
+.field > .lbl {
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-55);
+  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.field > .lbl::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ink-15);
+}
+
+.opts { display: grid; gap: 7px; }
+.opts.two { grid-template-columns: 1fr 1fr; }
+
+.opt {
+  position: relative;
+  text-align: left;
+  padding: 10px 11px;
+  border-radius: 2px;
+  background: rgba(255, 250, 235, .35);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .22);
+  transition: box-shadow .2s ease, background .2s ease, transform .16s ease;
+}
+.opt:active { transform: scale(.985); }
+.opt .t {
+  display: block;
+  font-size: 14.5px;
+  line-height: 1.25;
+  font-weight: 500;
+}
+.opt .d {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--ink-55);
+}
+.opt[aria-checked="true"] {
+  background: rgba(255, 252, 240, .78);
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 95, 20, .7),
+    inset 3px 0 0 0 var(--gold),
+    0 0 18px -6px rgba(192, 138, 36, .6);
+}
+.opt[aria-checked="true"] .d { color: var(--ink-2); }
+
+.primary {
+  display: block;
+  width: 100%;
+  margin-top: 20px;
+  padding: 15px 16px;
+  border-radius: 2px;
+  font-size: 15px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  font-weight: 600;
+  font-family: var(--sans);
+  color: #FDF3DC;
+  background: linear-gradient(178deg, #33241A, var(--ink) 60%, #15100A);
+  box-shadow:
+    inset 0 0 0 1px rgba(192, 138, 36, .55),
+    inset 0 1px 0 rgba(231, 194, 95, .3),
+    0 8px 18px -8px rgba(37, 26, 17, .8);
+  transition: transform .16s ease, box-shadow .2s ease;
+}
+.primary:active { transform: translateY(2px); box-shadow: inset 0 0 0 1px rgba(192, 138, 36, .5); }
+.primary.ghost {
+  color: var(--ink);
+  background: rgba(255, 250, 235, .3);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .3);
+  margin-top: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   Collection: card library, card maker, appearance
+   -------------------------------------------------------------------------- */
+
+.panel.wide { width: min(440px, 100%); }
+
+.tabrow {
+  display: flex;
+  gap: 4px;
+  margin: 6px 0 14px;
+  padding: 3px;
+  border-radius: 2px;
+  background: rgba(37, 26, 17, .07);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .13);
+}
+.tab {
+  flex: 1;
+  padding: 9px 4px;
+  border-radius: 1px;
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-55);
+  transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.tab[aria-selected="true"] {
+  color: var(--ink);
+  background: rgba(255, 252, 240, .9);
+  box-shadow: 0 1px 3px rgba(37, 26, 17, .18), inset 0 0 0 1px rgba(192, 138, 36, .45);
+}
+
+.tabpane { display: none; }
+.tabpane.on { display: block; }
+
+.chiprow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.chip {
+  padding: 6px 11px;
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-55);
+  background: rgba(255, 250, 235, .45);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .18);
+  transition: color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.chip[aria-pressed="true"] {
+  color: #FDF3DC;
+  background: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(192, 138, 36, .55);
+}
+
+.legend {
+  margin: 0 0 10px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ink-55);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 8px;
+  max-height: 46svh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+  margin-bottom: 12px;
+}
+
+/* one library entry: the card itself, plus its state */
+.lib {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.lib .card {
+  --h: 74px;
+  height: 74px;
+  width: 100%;
+  cursor: pointer;
+}
+.lib .heart {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 50%;
+  color: rgba(37, 26, 17, .3);
+  background: rgba(255, 250, 235, .95);
+  box-shadow: 0 1px 4px rgba(37, 26, 17, .3), inset 0 0 0 1px rgba(37, 26, 17, .16);
+  transition: color .2s ease, transform .2s cubic-bezier(.16, 1, .3, 1);
+}
+.lib .heart.on { color: var(--seal); transform: scale(1.12); }
+
+.lib[data-state="picked"] .card {
+  box-shadow:
+    inset 0 0 0 2px var(--gold),
+    inset 0 0 0 3.5px rgba(255, 250, 235, .6),
+    0 3px 10px -3px rgba(192, 138, 36, .8);
+}
+.lib[data-state="blocked"] .card { filter: grayscale(.85) brightness(.9); opacity: .5; }
+.lib[data-state="blocked"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(to top right,
+    transparent calc(50% - 1px), rgba(176, 48, 31, .8) 50%, transparent calc(50% + 1px));
+}
+.lib .state-tag {
+  position: absolute;
+  left: 4px;
+  top: -6px;
+  z-index: 2;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-family: var(--sans);
+  font-size: 8.5px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: #FDF3DC;
+  display: none;
+}
+.lib[data-state="picked"] .state-tag { display: block; background: var(--gold-dk); }
+.lib[data-state="blocked"] .state-tag { display: block; background: var(--seal); }
+
+/* card maker */
+.maker { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+#makerGrid {
+  flex: 0 0 auto;
+  width: 156px;
+  height: 156px;
+  border-radius: 2px;
+  background: rgba(255, 252, 240, .6);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .3);
+  touch-action: manipulation;
+  cursor: pointer;
+}
+.maker-fields { flex: 1 1 150px; min-width: 140px; display: flex; flex-direction: column; gap: 8px; }
+.fld { display: block; }
+.fld > span {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-55);
+}
+.fld input {
+  width: 100%;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 2px;
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--ink);
+  background: rgba(255, 252, 240, .75);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .26);
+}
+.fld input:focus-visible { outline: 0; box-shadow: inset 0 0 0 1.5px var(--gold); }
+
+/* appearance */
+.swatches { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+.swatch {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .35), 0 1px 3px rgba(37, 26, 17, .3);
+  transition: transform .18s cubic-bezier(.16, 1, .3, 1), box-shadow .2s ease;
+}
+.swatch[aria-pressed="true"] {
+  transform: scale(1.16);
+  box-shadow: inset 0 0 0 2px rgba(255, 250, 235, .9), 0 0 0 2px var(--gold), 0 2px 6px rgba(37, 26, 17, .4);
+}
+.swatch.pick {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 15px;
+  color: var(--ink-2);
+  background: repeating-conic-gradient(from 0deg,
+    #C4472F 0deg 60deg, #C08A24 60deg 120deg, #4E7A3E 120deg 180deg,
+    #46688F 180deg 240deg, #6B4A8A 240deg 300deg, #B0301F 300deg 360deg);
+  position: relative;
+  overflow: hidden;
+}
+.swatch.pick input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.color-preview {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 16px;
+  border-radius: 2px;
+}
+
+/* --- online: create / join --- */
+
+#onlineBox { display: none; }
+#onlineBox.on { display: block; }
+#onlineBox.on + #btnStart { display: none; }
+
+/* live list of rooms waiting for a second player */
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 30svh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.room {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 2px;
+  text-align: left;
+  background: rgba(255, 250, 235, .42);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .2);
+  transition: transform .16s ease, box-shadow .2s ease, background .2s ease;
+}
+.room:active { transform: scale(.99); }
+.room:hover { background: rgba(255, 252, 240, .8); box-shadow: inset 0 0 0 1px rgba(138, 95, 20, .55); }
+.room .rcode {
+  font-size: 20px;
+  letter-spacing: .16em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.room .rmeta {
+  flex: 1;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--ink-55);
+}
+.room .rseat {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 1px;
+  font-size: 12px;
+  color: var(--paper-1);
+}
+.room .rseat.red { background: var(--crimson); }
+.room .rseat.blue { background: var(--indigo); }
+.room-empty {
+  padding: 14px 4px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--ink-55);
+}
+
+.bycode { margin-top: 12px; }
+.bycode > summary {
+  font-family: var(--sans);
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink-55);
+  cursor: pointer;
+  padding: 5px 0;
+  list-style: none;
+}
+.bycode > summary::-webkit-details-marker { display: none; }
+.bycode > summary::before { content: "＋ "; color: var(--gold-dk); }
+.bycode[open] > summary::before { content: "－ "; }
+
+.joinrow {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+}
+.code-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 0;
+  border-radius: 2px;
+  font-family: var(--sans);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: .34em;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: rgba(255, 252, 240, .7);
+  box-shadow: inset 0 0 0 1px rgba(37, 26, 17, .3);
+}
+.code-field::placeholder { color: rgba(37, 26, 17, .26); letter-spacing: .34em; }
+.code-field:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 1.5px var(--gold), 0 0 16px -4px rgba(192, 138, 36, .6);
+}
+.primary.compact { width: auto; margin-top: 0; padding: 13px 20px; flex: 0 0 auto; }
+
+.net-note {
+  margin: 9px 0 0;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--ink-55);
+  min-height: 17px;
+}
+.net-note.err { color: var(--seal); font-weight: 600; }
+
+/* --- lobby --- */
+
+.code-display {
+  margin: 10px auto 4px;
+  padding: 12px 8px;
+  font-size: 46px;
+  line-height: 1;
+  letter-spacing: .22em;
+  text-indent: .22em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  background: radial-gradient(70% 120% at 50% 0%, rgba(255, 250, 235, .85), rgba(255, 250, 235, 0));
+  box-shadow: inset 0 1px 0 rgba(192, 138, 36, .5), inset 0 -1px 0 rgba(192, 138, 36, .5);
+}
+
+.waiting-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 16px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-55);
+}
+.pips { display: inline-flex; gap: 4px; }
+.pips i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: pip 1.15s ease-in-out infinite;
+}
+.pips i:nth-child(2) { animation-delay: .16s; }
+.pips i:nth-child(3) { animation-delay: .32s; }
+@keyframes pip { 0%, 100% { opacity: .25; } 45% { opacity: 1; } }
+
+.linkrow {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 14px;
+}
+.linkish {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-55);
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--ink-15);
+}
+
+/* rules body */
+#rulesBody { display: none; margin-top: 16px; }
+#rulesBody.on { display: block; animation: sheetIn .3s ease both; }
+#rulesBody h3 {
+  margin: 14px 0 4px;
+  font-size: 13px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  font-family: var(--sans);
+  font-weight: 700;
+  color: var(--gold-dk);
+}
+#rulesBody p { margin: 0 0 7px; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+
+/* --------------------------------------------------------------------------
+   Victory
+   -------------------------------------------------------------------------- */
+
+#over { z-index: 70; }
+.hanko {
+  width: 100px;
+  height: 100px;
+  margin: 4px auto 12px;
+  display: grid;
+  place-items: center;
+  font-size: 58px;
+  line-height: 1;
+  color: #FFF6E2;
+  background:
+    radial-gradient(120% 120% at 30% 20%, #C8402C, var(--seal) 55%, #7E1E12);
+  border-radius: 3px;
+  box-shadow:
+    inset 0 0 0 3px rgba(255, 246, 226, .35),
+    inset 0 0 0 4px rgba(126, 30, 18, .8),
+    0 12px 30px -10px rgba(126, 30, 18, .9);
+  transform: rotate(-5deg);
+  animation: hankoIn .6s cubic-bezier(.18, 1.6, .38, 1) both .1s;
+}
+@keyframes hankoIn {
+  from { transform: rotate(-16deg) scale(2.6); opacity: 0; filter: blur(9px); }
+  to { transform: rotate(-5deg) scale(1); opacity: 1; filter: none; }
+}
+.win-reason {
+  margin: 10px 0 0;
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  font-weight: 700;
+  text-align: center;
+  color: var(--gold-dk);
+}
+.stat-row {
+  display: flex;
+  justify-content: center;
+  gap: 22px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ink-15);
+}
+.stat { text-align: center; }
+.stat .v {
+  font-size: 24px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.stat .k {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--sans);
+  font-size: 9.5px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+}
+
+/* --------------------------------------------------------------------------
+   Toast
+   -------------------------------------------------------------------------- */
+
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--safe-b) + 52px);
+  z-index: 45;
+  transform: translate(-50%, 10px);
+  padding: 8px 15px;
+  border-radius: 2px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  letter-spacing: .1em;
+  font-weight: 600;
+  color: #FDF3DC;
+  background: rgba(28, 19, 12, .92);
+  box-shadow: inset 0 0 0 1px rgba(192, 138, 36, .45);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .3s cubic-bezier(.16, 1, .3, 1);
+}
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* --------------------------------------------------------------------------
+   Side-by-side turn banner
+   -------------------------------------------------------------------------- */
+
+#banner {
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  z-index: 44;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+}
+#banner.go { animation: bannerSweep 1.25s cubic-bezier(.2, .8, .2, 1) both; }
+#banner .b-in {
+  padding: 9px 26px;
+  border-radius: 2px;
+  font-size: 17px;
+  letter-spacing: .2em;
+  color: #FDF3DC;
+  background: linear-gradient(90deg, rgba(28, 19, 12, 0), rgba(28, 19, 12, .93) 18%, rgba(28, 19, 12, .93) 82%, rgba(28, 19, 12, 0));
+  box-shadow: 0 0 30px rgba(0, 0, 0, .4);
+}
+@keyframes bannerSweep {
+  0% { opacity: 0; transform: translateX(-14%); }
+  22% { opacity: 1; transform: none; }
+  74% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateX(14%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="backdrop" aria-hidden="true"></canvas>
+
+  <div id="stage">
+    <div id="turnbar">
+      <div class="turn-chip red" id="turnChip">
+        <span class="glyph" id="turnGlyph">紅</span>
+        <span class="who" id="turnWho">Punainen</span>
+      </div>
+      <div class="net-chip" id="netChip" hidden>
+        <span class="dot"></span><span id="netCode">----</span>
+      </div>
+      <span class="spacer"></span>
+      <div class="spare-slot" id="spareSlot">
+        <span class="spare-arrow" id="spareArrow" aria-hidden="true">↓</span>
+      </div>
+      <span class="spacer"></span>
+      <button class="icon-btn" id="btnSound" aria-label="Äänet">♪</button>
+      <button class="icon-btn" id="btnMenu" aria-label="Valikko">☰</button>
+    </div>
+
+    <div class="hand-col" id="topCol">
+      <div class="hand-note" id="topNote"></div>
+      <div class="hand top" id="topHand"></div>
+    </div>
+
+    <div id="boardWrap">
+      <div class="fallen at-top" id="fallenTop"></div>
+      <canvas id="board"></canvas>
+      <div class="fallen at-bot" id="fallenBot"></div>
+    </div>
+
+    <div class="hand-col" id="botCol">
+      <div class="hand" id="botHand"></div>
+      <div class="hand-note" id="botNote"></div>
+    </div>
+
+    <div id="rail">
+      <button class="rail-btn" id="btnUndo">Peru siirto</button>
+      <button class="rail-btn" id="btnFlip">Käännä lauta</button>
+    </div>
+  </div>
+
+  <div id="banner" aria-hidden="true"><span class="b-in"></span></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- ================= menu ================= -->
+  <div class="sheet on" id="menu">
+    <div class="panel">
+      <canvas class="enso-mark" id="ensoMark" aria-hidden="true"></canvas>
+      <p class="eyebrow" id="mTagline">Sulava ja yksinkertainen taktiikkapeli</p>
+      <h1>Onitama</h1>
+      <p class="lede" id="mLede">Kaksi koulua, viisi korttia, yksi matto. Kaappaa vastustajan mestari tai vie omasi hänen temppeliinsä.</p>
+
+      <div class="field">
+        <div class="lbl" id="lMode">Pelitila</div>
+        <div class="opts" id="optMode"></div>
+      </div>
+
+      <div class="field">
+        <div class="lbl" id="lSets">Korttisetit</div>
+        <div class="opts two" id="optSets"></div>
+      </div>
+
+      <div id="onlineBox">
+        <button class="primary" id="btnCreate">Luo uusi peli</button>
+
+        <div class="field">
+          <div class="lbl" id="lbOpenRooms">Avoimet huoneet</div>
+          <div class="room-list" id="roomList"></div>
+        </div>
+
+        <details class="bycode" id="byCode">
+          <summary id="lbByCode">Liity koodilla</summary>
+          <div class="joinrow">
+            <input id="roomInput" class="code-field" type="text" inputmode="latin"
+                   autocomplete="off" autocapitalize="characters" spellcheck="false"
+                   maxlength="4" placeholder="A3X9" aria-label="Huonekoodi" />
+            <button class="primary compact" id="btnJoin">Liity</button>
+          </div>
+        </details>
+
+        <p class="net-note" id="netNote"></p>
+      </div>
+
+      <button class="primary" id="btnStart">Aloita ottelu</button>
+
+      <div class="linkrow">
+        <button class="linkish" id="btnCards">Kortit ja ulkoasu</button>
+        <button class="linkish" id="btnRules">Säännöt</button>
+        <button class="linkish" id="btnLang">English</button>
+      </div>
+
+      <div id="rulesBody"></div>
+    </div>
+  </div>
+
+  <!-- ================= collection: cards, custom cards, appearance ========= -->
+  <div class="sheet" id="collection">
+    <div class="panel wide">
+      <div class="tabrow" id="colTabs" role="tablist"></div>
+
+      <!-- cards -->
+      <section class="tabpane on" id="paneCards">
+        <div class="chiprow" id="cardFilters"></div>
+        <p class="legend" id="cardLegend"></p>
+        <div class="card-grid" id="cardGrid"></div>
+        <p class="net-note" id="deckNote"></p>
+        <button class="primary ghost" id="btnClearPicks">Tyhjennä valinnat</button>
+      </section>
+
+      <!-- custom cards -->
+      <section class="tabpane" id="paneCustom">
+        <div class="maker">
+          <canvas id="makerGrid" width="260" height="260" aria-label="Siirtoruudukko"></canvas>
+          <div class="maker-fields">
+            <label class="fld"><span id="lbName">Nimi</span>
+              <input id="makerName" type="text" maxlength="14" placeholder="Haukka" /></label>
+            <label class="fld"><span id="lbGlyph">Merkki</span>
+              <input id="makerGlyph" type="text" maxlength="2" placeholder="鷹" /></label>
+            <p class="net-note" id="makerNote"></p>
+            <button class="primary" id="btnSaveCard">Tallenna kortti</button>
+          </div>
+        </div>
+        <div class="card-grid" id="customGrid"></div>
+      </section>
+
+      <!-- appearance -->
+      <section class="tabpane" id="paneLook">
+        <div class="field">
+          <div class="lbl" id="lbRedColor">Punaisen koulun väri</div>
+          <div class="swatches" data-side="red"></div>
+        </div>
+        <div class="field">
+          <div class="lbl" id="lbBlueColor">Sinisen koulun väri</div>
+          <div class="swatches" data-side="blue"></div>
+        </div>
+        <canvas id="colorPreview" class="color-preview" width="300" height="120" aria-hidden="true"></canvas>
+        <button class="primary ghost" id="btnResetColors">Palauta oletusvärit</button>
+      </section>
+
+      <button class="primary" id="btnCloseCollection">Valmis</button>
+    </div>
+  </div>
+
+  <!-- ================= online lobby ================= -->
+  <div class="sheet" id="lobby">
+    <div class="panel">
+      <p class="eyebrow" id="lbEyebrow">Huone avattu</p>
+      <div class="code-display" id="lbCode">----</div>
+      <p class="lede" id="lbLede">Kerro koodi vastustajalle tai lähetä linkki.</p>
+      <button class="primary ghost" id="btnCopy">Kopioi linkki</button>
+      <div class="waiting-row" id="lbWaiting">
+        <span class="pips"><i></i><i></i><i></i></span>
+        <span id="lbStatus">Odotetaan vastustajaa</span>
+      </div>
+      <button class="primary ghost" id="btnLeaveLobby">Peruuta</button>
+    </div>
+  </div>
+
+  <!-- ================= victory ================= -->
+  <div class="sheet" id="over">
+    <div class="panel">
+      <div class="hanko" id="oHanko">勝</div>
+      <h2 id="oWho">Punainen koulu voittaa</h2>
+      <p class="win-reason" id="oReason"></p>
+      <div class="stat-row">
+        <div class="stat"><span class="v" id="oTurns">0</span><span class="k" id="oTurnsK">Siirtoa</span></div>
+        <div class="stat"><span class="v" id="oCaps">0</span><span class="k" id="oCapsK">Kaappausta</span></div>
+      </div>
+      <button class="primary" id="btnAgain">Uusi ottelu</button>
+      <button class="primary ghost" id="btnToMenu">Valikkoon</button>
+    </div>
+  </div>
+</div>
+
+<script src="env.js"></script>
+<script src="engine.js"></script>
+<script src="net.js"></script>
+<script>
+"use strict";
+/* ==========================================================================
+   0. Small helpers
+   ========================================================================== */
+
+const $ = (s) => document.querySelector(s);
+const RM = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const TAU = Math.PI * 2;
+
+/** Deterministic PRNG so every brush stroke and warrior stays stable per seed. */
+function rng(seed) {
+  let a = (seed * 2654435761) >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+
+function buzz(pattern) {
+  if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) { /* unsupported */ } }
+}
+
+/* ==========================================================================
+   1–2. Cards and rules live in engine.js, shared verbatim with the server.
+   ========================================================================== */
+
+const {
+  DIR, CARDS, SET_BASE, SET_SENSEI, RED_GOAL, BLUE_GOAL,
+  other, same, inBounds,
+  newBoard, cloneBoard, handOf, kingOf, pawnsOf, piecesOf, pieceAt,
+  targetsFor, movableWith, canMove, applyMove, applyDiscard,
+} = window.Onitama;
+
+/* ==========================================================================
+   3. Copy — Finnish first, English on the toggle
+   ========================================================================== */
+
+const STR = {
+  fi: {
+    tagline: "Sulava ja yksinkertainen taktiikkapeli",
+    lede: "Kaksi koulua, viisi korttia, yksi matto. Kaappaa vastustajan mestari tai vie omasi hänen temppeliinsä.",
+    mode: "Pelitila",
+    modePass: "Vuorottelu",
+    modePassD: "Yksi puhelin kädestä käteen. Lauta kääntyy aina vuorossa olevalle.",
+    modeSide: "Vierekkäin",
+    modeSideD: "Puhelin pöydällä pelaajien välissä. Ylälaidan kortit ovat ylösalaisin.",
+    sets: "Korttisetit",
+    setBase: "Perussetti",
+    setBaseD: "16 alkuperäistä korttia",
+    setSensei: "Sensein polku",
+    setSenseiD: "16 lisäkorttia",
+    start: "Aloita ottelu",
+    rules: "Säännöt",
+    lang: "English",
+    red: "Punainen",
+    blue: "Sininen",
+    redSchool: "Punainen koulu",
+    blueSchool: "Sininen koulu",
+    pass: "Anna puhelin",
+    yourTurn: "Vuorosi. Katso lauta ja valitse kortti.",
+    ready: "Olen valmis",
+    pickCard: "Valitse kortti",
+    pickPiece: "Valitse nappula",
+    pickPieceCard: "Valitse nappula — kortti lukittu",
+    pickSquare: "Valitse ruutu",
+    cardCannot: "Tällä kortilla ei siirtoja tuolla nappulalla",
+    pieceStuck: "Tällä nappulalla ei ole siirtoja",
+    noMoves: "Ei siirtoja — hylkää kortti",
+    waiting: "Odota vuoroasi",
+    undo: "Peru siirto",
+    flip: "Käännä lauta",
+    wins: "voittaa",
+    byTemple: "Temppelin valtaus",
+    byCapture: "Mestarin kaappaus",
+    again: "Uusi ottelu",
+    toMenu: "Valikkoon",
+    turnsK: "Siirtoa",
+    capsK: "Kaappausta",
+    whichCard: "Millä kortilla?",
+    discarded: "Kortti hylätty",
+    nothingToUndo: "Ei mitään perumista",
+    aside: "Sivussa",
+    students: "Oppilaat",
+    modeOnline: "Verkkopeli",
+    modeOnlineD: "Kaksi laitetta, sama peli. Luo huone tai liity koodilla.",
+    create: "Luo uusi peli",
+    join: "Liity",
+    roomOpen: "Huone avattu",
+    shareCode: "Kerro koodi vastustajalle tai lähetä linkki.",
+    copyLink: "Kopioi linkki",
+    copied: "Linkki kopioitu",
+    waitOpponent: "Odotetaan vastustajaa",
+    cancel: "Peruuta",
+    connecting: "Yhdistetään…",
+    waking: "Herätetään palvelinta — tämä voi kestää minuutin.",
+    joining: "Liitytään huoneeseen…",
+    yourMove: "Sinun vuorosi",
+    oppMove: "Vastustajan vuoro",
+    sending: "Lähetetään siirtoa…",
+    oppLeft: "Vastustaja poistui",
+    oppLeftWait: "Vastustaja katkaisi yhteyden — odotetaan paluuta.",
+    oppBack: "Vastustaja palasi",
+    oppJoined: "Vastustaja liittyi",
+    reconnecting: "Yhteys katkesi — yhdistetään uudelleen…",
+    linkLost: "Yhteyttä palvelimeen ei saatu.",
+    noRoom: "Huonetta ei löytynyt.",
+    roomFull: "Huone on täynnä.",
+    badCode: "Anna nelimerkkinen koodi.",
+    serverBusy: "Palvelin on ruuhkautunut. Yritä hetken päästä.",
+    refused: "Palvelin hylkäsi siirron.",
+    onlineOff: "Verkkopeliä ei ole määritetty tässä versiossa.",
+    rematchAsk: "Uusi peli — odotetaan vastustajaa",
+    noUndoOnline: "Verkkopelissä siirtoa ei voi peruuttaa",
+    collection: "Kortit ja ulkoasu",
+    openRooms: "Avoimet huoneet",
+    byCode: "Liity koodilla",
+    noRooms: "Ei avoimia huoneita juuri nyt. Luo oma — se näkyy heti muille.",
+    lookingRooms: "Haetaan avoimia huoneita…",
+    agoSec: "%n s sitten",
+    agoMin: "%n min sitten",
+    tabCards: "Kortit",
+    tabCustom: "Omat",
+    tabLook: "Ulkoasu",
+    filAll: "Kaikki",
+    filFav: "Suosikit",
+    filCustom: "Omat",
+    filPicked: "Valitut",
+    filBlocked: "Estetyt",
+    filterEmpty: "Ei kortteja tällä suodattimella.",
+    libLegend: "Napauta korttia: vapaa → valittu → estetty. Sydän merkitsee suosikin. Kun valittuja on vähintään viisi, pelataan tasan niillä.",
+    tagPicked: "Valittu",
+    tagBlocked: "Estetty",
+    clearPicks: "Tyhjennä valinnat ja estot",
+    deckExact: "Pelataan tasan %n valitulla kortilla.",
+    deckPool: "Arvonnassa %n korttia.",
+    favourite: "suosikki",
+    fldName: "Nimi",
+    fldGlyph: "Merkki",
+    saveCard: "Tallenna kortti",
+    makerCount: "%n siirtoa — napauta ruutuja.",
+    makerRange: "Valitse 1–6 siirtoruutua.",
+    customDefault: "Oma kortti",
+    cardSaved: "%s tallennettu omiin kortteihin",
+    noCustom: "Et ole vielä luonut omia kortteja.",
+    deleteCard: "Poista",
+    setCustom: "Omat kortit",
+    setCustomD: "Itse luodut kortit",
+    redColour: "Punaisen koulun väri",
+    blueColour: "Sinisen koulun väri",
+    resetColours: "Palauta oletusvärit",
+    anyColour: "Vapaa väri",
+    done: "Valmis",
+    rulesHtml: `
+      <h3>Tavoite</h3>
+      <p>Voitat kahdella tavalla: kaappaat vastustajan mestarin, tai viet oman mestarisi vastustajan temppeliruutuun — laudan vastakkaisen laidan keskimmäiseen ruutuun, jossa on portti.</p>
+      <h3>Nappulat</h3>
+      <p>Kummallakin koululla on mestari ja neljä oppilasta. Mestari erottuu hatustaan ja kultaisesta kehästään. Kaikki nappulat liikkuvat samalla tavalla — vain mestarin kohtalo ratkaisee pelin.</p>
+      <h3>Kortit</h3>
+      <p>Kädessäsi on kaksi siirtokorttia. Valitse kortti, valitse nappula ja siirrä sen osoittamalla tavalla. Kortin kuvio näytetään aina sinun suunnastasi.</p>
+      <h3>Kortin kierto</h3>
+      <p>Käyttämäsi kortti siirtyy laudan sivuun odottamaan, ja sivussa ollut kortti tulee tilalle käteesi. Näin vastustaja saa aina tietää, mikä kortti häntä odottaa.</p>
+      <h3>Kaappaus</h3>
+      <p>Nappula ei voi hypätä toisen yli, mutta se voi laskeutua vastustajan nappulan päälle ja poistaa sen pelistä. Omalle nappulalle ei voi siirtyä.</p>
+      <h3>Jos siirtoja ei ole</h3>
+      <p>Jos yksikään kortti ei tarjoa laillista siirtoa, sinun on hylättävä toinen korteistasi ja vuoro siirtyy vastustajalle.</p>
+    `,
+  },
+  en: {
+    tagline: "An elegant and simple game of martial tactics",
+    lede: "Two schools, five cards, one mat. Capture the rival master or walk your own into their temple.",
+    mode: "Play mode",
+    modePass: "Pass and play",
+    modePassD: "One phone, handed over. The mat turns to face whoever is to move.",
+    modeSide: "Side by side",
+    modeSideD: "Phone flat between you. The top hand is drawn upside down for them.",
+    sets: "Card sets",
+    setBase: "Base set",
+    setBaseD: "16 original cards",
+    setSensei: "Sensei's Path",
+    setSenseiD: "16 extra cards",
+    start: "Begin the match",
+    rules: "Rules",
+    lang: "Suomi",
+    red: "Red",
+    blue: "Blue",
+    redSchool: "Red school",
+    blueSchool: "Blue school",
+    pass: "Pass the phone",
+    yourTurn: "Your move. Read the mat and pick a card.",
+    ready: "I'm ready",
+    pickCard: "Pick a card",
+    pickPiece: "Pick a piece",
+    pickPieceCard: "Pick a piece — card locked",
+    pickSquare: "Pick a square",
+    cardCannot: "That card cannot move that piece",
+    pieceStuck: "That piece has no moves",
+    noMoves: "No moves — discard a card",
+    waiting: "Wait your turn",
+    undo: "Undo move",
+    flip: "Turn the mat",
+    wins: "wins",
+    byTemple: "Temple taken",
+    byCapture: "Master captured",
+    again: "New match",
+    toMenu: "Main menu",
+    turnsK: "Moves",
+    capsK: "Captures",
+    whichCard: "With which card?",
+    discarded: "Card discarded",
+    nothingToUndo: "Nothing to undo",
+    aside: "Aside",
+    students: "Students",
+    modeOnline: "Online",
+    modeOnlineD: "Two devices, one game. Open a room or join with a code.",
+    create: "Create a game",
+    join: "Join",
+    roomOpen: "Room open",
+    shareCode: "Read the code to your opponent, or send them the link.",
+    copyLink: "Copy link",
+    copied: "Link copied",
+    waitOpponent: "Waiting for opponent",
+    cancel: "Cancel",
+    connecting: "Connecting…",
+    waking: "Waking the server — this can take a minute.",
+    joining: "Joining the room…",
+    yourMove: "Your move",
+    oppMove: "Opponent's move",
+    sending: "Sending move…",
+    oppLeft: "Opponent left",
+    oppLeftWait: "Opponent dropped out — waiting for them to return.",
+    oppBack: "Opponent is back",
+    oppJoined: "Opponent joined",
+    reconnecting: "Connection lost — reconnecting…",
+    linkLost: "Could not reach the server.",
+    noRoom: "No such room.",
+    roomFull: "That room is full.",
+    badCode: "Enter the four-character code.",
+    serverBusy: "The server is busy. Try again shortly.",
+    refused: "The server refused that move.",
+    onlineOff: "Online play is not configured in this build.",
+    rematchAsk: "New game — waiting for opponent",
+    noUndoOnline: "Moves cannot be undone in an online game",
+    collection: "Cards & look",
+    openRooms: "Open rooms",
+    byCode: "Join with a code",
+    noRooms: "No open rooms right now. Create one — it shows up for others immediately.",
+    lookingRooms: "Looking for open rooms…",
+    agoSec: "%n s ago",
+    agoMin: "%n min ago",
+    tabCards: "Cards",
+    tabCustom: "Mine",
+    tabLook: "Look",
+    filAll: "All",
+    filFav: "Favourites",
+    filCustom: "Mine",
+    filPicked: "Picked",
+    filBlocked: "Blocked",
+    filterEmpty: "No cards match this filter.",
+    libLegend: "Tap a card: free → picked → blocked. The heart marks a favourite. Pick five or more and the game uses exactly those.",
+    tagPicked: "Picked",
+    tagBlocked: "Blocked",
+    clearPicks: "Clear picks and blocks",
+    deckExact: "Playing with exactly %n picked cards.",
+    deckPool: "%n cards in the draw.",
+    favourite: "favourite",
+    fldName: "Name",
+    fldGlyph: "Glyph",
+    saveCard: "Save card",
+    makerCount: "%n moves — tap the squares.",
+    makerRange: "Choose 1–6 destination squares.",
+    customDefault: "My card",
+    cardSaved: "%s saved to your cards",
+    noCustom: "You have not drawn any cards yet.",
+    deleteCard: "Delete",
+    setCustom: "My cards",
+    setCustomD: "Cards you drew yourself",
+    redColour: "Red school colour",
+    blueColour: "Blue school colour",
+    resetColours: "Restore default colours",
+    anyColour: "Any colour",
+    done: "Done",
+    rulesHtml: `
+      <h3>Objective</h3>
+      <p>You win two ways: capture the opposing master, or walk your own master onto the opponent's temple — the centre square of their home row, marked with a gate.</p>
+      <h3>Pieces</h3>
+      <p>Each school has one master and four students. The master wears a hat and carries a gold ring. Every piece moves the same way — only the master's fate ends the game.</p>
+      <h3>Cards</h3>
+      <p>You hold two move cards. Choose a card, choose a piece, and move as the card shows. A card's pattern is always drawn from your own side of the mat.</p>
+      <h3>The card cycle</h3>
+      <p>The card you play goes to the side of the mat, and the card waiting there comes into your hand. Your opponent always knows what is coming.</p>
+      <h3>Capturing</h3>
+      <p>Pieces never jump over one another, but they may land on an enemy piece and remove it. You cannot land on your own piece.</p>
+      <h3>When you cannot move</h3>
+      <p>If neither card offers a legal move, you must discard one of them and the turn passes.</p>
+    `,
+  },
+};
+
+let L = STR.fi;
+const sideName = (s) => (s === "red" ? L.red : L.blue);
+const schoolName = (s) => (s === "red" ? L.redSchool : L.blueSchool);
+const sideGlyph = (s) => (s === "red" ? "紅" : "藍");
+
+/* ==========================================================================
+   4. Palette read once — the canvas layers share the CSS tokens
+   ========================================================================== */
+
+const C = (() => {
+  const cs = getComputedStyle(document.documentElement);
+  const g = (n) => cs.getPropertyValue(n).trim();
+  return {
+    ink: g("--ink"), ink2: g("--ink-2"), ink3: g("--ink-3"),
+    gold: g("--gold"), goldLt: g("--gold-lt"), goldDk: g("--gold-dk"),
+    crimson: g("--crimson"), indigo: g("--indigo"), seal: g("--seal"),
+  };
+})();
+
+/* --------------------------------------------------------------------------
+   School colours
+
+   A school's ink is derived from one base colour so a player can recolour both
+   sides and every stroke — figures, card dots, temple gates, seals — follows.
+   -------------------------------------------------------------------------- */
+
+function hexToHsl(hex) {
+  const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || "");
+  if (!m) return [0, 0, 0.3];
+  const r = parseInt(m[1], 16) / 255, g = parseInt(m[2], 16) / 255, b = parseInt(m[3], 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+  if (mx === mn) return [0, 0, l];
+  const d = mx - mn;
+  const s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+  let h;
+  if (mx === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (mx === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function hslCss(h, s, l, a) {
+  const H = Math.round(h * 360), Sp = Math.round(clamp(s, 0, 1) * 100), Lp = Math.round(clamp(l, 0, 1) * 100);
+  return a == null ? `hsl(${H} ${Sp}% ${Lp}%)` : `hsla(${H}, ${Sp}%, ${Lp}%, ${a})`;
+}
+
+/** Four tones of one hue: the loaded core, its bleed, a highlight, and a wash. */
+function inkPalette(hex) {
+  const [h, s, l] = hexToHsl(hex);
+  return {
+    base: hex,
+    core: hslCss(h, s, Math.max(0.12, l * 0.72)),
+    bleed: hslCss(h, s * 0.94, Math.min(0.52, l * 1.15)),
+    lift: hslCss(h, s * 0.8, Math.min(0.74, l * 1.85 + 0.06)),
+    wash: hslCss(h, s, l, 0.2),
+  };
+}
+
+const DEFAULT_COLORS = { red: "#9E2B1E", blue: "#26405E" };
+let SIDE_INK = { red: inkPalette(DEFAULT_COLORS.red), blue: inkPalette(DEFAULT_COLORS.blue) };
+
+/* ==========================================================================
+   5. Ink brush primitives on canvas
+   ========================================================================== */
+
+/**
+ * Build a tapered polygon around a polyline: `widths[i]` is the brush width at
+ * point i, so a stroke can swell and thin the way a loaded brush does.
+ */
+function brushPath(ctx, pts, widths, seed, jitter) {
+  const r = rng(seed);
+  const n = pts.length;
+  const Lft = [], Rgt = [];
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(n - 1, i + 1)];
+    let tx = b[0] - a[0], ty = b[1] - a[1];
+    const len = Math.hypot(tx, ty) || 1;
+    tx /= len; ty /= len;
+    const nx = -ty, ny = tx;
+    const w = (widths[i] / 2) * (1 + (r() - 0.5) * (jitter || 0));
+    Lft.push([p[0] + nx * w, p[1] + ny * w]);
+    Rgt.push([p[0] - nx * w, p[1] - ny * w]);
+  }
+  ctx.beginPath();
+  ctx.moveTo(Lft[0][0], Lft[0][1]);
+  for (let i = 1; i < n; i++) {
+    const mx = (Lft[i - 1][0] + Lft[i][0]) / 2, my = (Lft[i - 1][1] + Lft[i][1]) / 2;
+    ctx.quadraticCurveTo(Lft[i - 1][0], Lft[i - 1][1], mx, my);
+  }
+  ctx.lineTo(Lft[n - 1][0], Lft[n - 1][1]);
+  ctx.lineTo(Rgt[n - 1][0], Rgt[n - 1][1]);
+  for (let i = n - 2; i >= 0; i--) {
+    const mx = (Rgt[i + 1][0] + Rgt[i][0]) / 2, my = (Rgt[i + 1][1] + Rgt[i][1]) / 2;
+    ctx.quadraticCurveTo(Rgt[i + 1][0], Rgt[i + 1][1], mx, my);
+  }
+  ctx.closePath();
+}
+
+/** A stroke: a soft bleed pass under a crisp pass, as ink soaks into paper. */
+function brush(ctx, pts, widths, color, opt) {
+  const o = opt || {};
+  const seed = o.seed == null ? 7 : o.seed;
+  const jit = o.jit == null ? 0.14 : o.jit;
+  const bleed = o.bleed == null ? 1 : o.bleed;
+  const alpha = o.alpha == null ? 1 : o.alpha;
+  ctx.save();
+  if (bleed > 0) {
+    ctx.globalAlpha = 0.2 * bleed * alpha;
+    ctx.fillStyle = color;
+    brushPath(ctx, pts, widths.map((w) => w * 1.7), seed + 1, jit);
+    ctx.fill();
+  }
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = color;
+  brushPath(ctx, pts, widths, seed, jit);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** An irregular ink blob — smoothed so it reads as a droplet, not a polygon. */
+function inkBlob(ctx, x, y, r, seed, wob) {
+  const rnd = rng(seed);
+  const N = 11;
+  const pts = [];
+  const w = wob == null ? 0.34 : wob;
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * TAU;
+    const rr = r * (1 - w / 2 + rnd() * w);
+    pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]);
+  }
+  ctx.beginPath();
+  const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+  let m = mid(pts[N - 1], pts[0]);
+  ctx.moveTo(m[0], m[1]);
+  for (let i = 0; i < N; i++) {
+    const cur = pts[i], nxt = pts[(i + 1) % N];
+    const mm = mid(cur, nxt);
+    ctx.quadraticCurveTo(cur[0], cur[1], mm[0], mm[1]);
+  }
+  ctx.closePath();
+}
+
+/** A brush-drawn circle (enso) with a natural opening and thick-thin sweep. */
+function ensoRing(ctx, cx, cy, r, color, opt) {
+  const o = opt || {};
+  const from = o.from == null ? -0.35 : o.from;
+  const sweep = o.sweep == null ? TAU * 0.96 : o.sweep;
+  const width = o.width == null ? r * 0.14 : o.width;
+  const seed = o.seed == null ? 3 : o.seed;
+  const steps = 46;
+  const pts = [], ws = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const a = from + sweep * t;
+    const wob = 1 + Math.sin(t * 7 + seed) * 0.02;
+    pts.push([cx + Math.cos(a) * r * wob, cy + Math.sin(a) * r * wob]);
+    // loaded at the start, drying out at the finish
+    const taper = Math.sin(Math.min(1, t * 1.15) * Math.PI * 0.92);
+    ws.push(width * (0.28 + taper * 0.95));
+  }
+  brush(ctx, pts, ws, color, { seed: seed, jit: 0.22, bleed: o.bleed == null ? 0.8 : o.bleed, alpha: o.alpha == null ? 1 : o.alpha });
+}
+
+/** Warm paper with value noise and horizontal fibres, baked once per size. */
+function paperTexture(w, h, seed, stops, grain) {
+  const cv = document.createElement("canvas");
+  cv.width = Math.max(1, Math.floor(w));
+  cv.height = Math.max(1, Math.floor(h));
+  const x = cv.getContext("2d");
+  const g = x.createLinearGradient(0, 0, w * 0.35, h);
+  stops.forEach((s) => g.addColorStop(s[0], s[1]));
+  x.fillStyle = g;
+  x.fillRect(0, 0, w, h);
+
+  const amt = grain == null ? 12 : grain;
+  const img = x.getImageData(0, 0, cv.width, cv.height);
+  const d = img.data;
+  const rnd = rng(seed);
+  for (let y = 0; y < cv.height; y++) {
+    const fibre = Math.sin(y * 0.9) * 3 + Math.sin(y * 0.21 + 1.7) * 4;
+    for (let px = 0; px < cv.width; px++) {
+      const i = (y * cv.width + px) * 4;
+      const n = (rnd() - 0.5) * amt + fibre * (rnd() * 0.5 + 0.5) * 0.5;
+      d[i] = clamp(d[i] + n, 0, 255);
+      d[i + 1] = clamp(d[i + 1] + n * 0.94, 0, 255);
+      d[i + 2] = clamp(d[i + 2] + n * 0.82, 0, 255);
+    }
+  }
+  x.putImageData(img, 0, 0);
+  return cv;
+}
+
+/* ==========================================================================
+   6. Warriors — sumi-e figures assembled from tapered strokes
+   ========================================================================== */
+
+/**
+ * Draw one piece standing on (cx, cy). `s` is the body unit; a student comes out
+ * about 1.45s tall, a master a shade more. Every stroke is seeded, so each
+ * student carries its own slightly different stance.
+ */
+function drawWarrior(ctx, cx, cy, s, side, master, seed, t, opt) {
+  const o = opt || {};
+  const ink = SIDE_INK[side];
+  const r = rng(seed);
+  const face = side === "blue" ? -1 : 1;   // the two schools turn to face each other
+  const idle = RM ? 0 : Math.sin(t * 0.0013 + seed * 1.7) * 0.016;
+  const stance = (r() - 0.5) * 0.05;
+  const armLift = (r() - 0.5) * 0.07;
+  const scale = master ? s * 1.1 : s;
+  const alpha = o.alpha == null ? 1 : o.alpha;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.globalAlpha = alpha;
+
+  // --- contact shadow ------------------------------------------------------
+  ctx.save();
+  ctx.globalAlpha = 0.2 * alpha;
+  ctx.fillStyle = C.ink;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, scale * 0.3, scale * 0.085, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.scale(face, 1);                      // mirror horizontally only — always upright
+  ctx.rotate(-0.05);                       // a slight forward lean, into the fight
+  const P = (x, y) => [x * scale, y * scale];
+
+  // --- colour wash pooling at the hem --------------------------------------
+  ctx.save();
+  ctx.globalAlpha = 0.55 * alpha;
+  ctx.fillStyle = ink.wash;
+  inkBlob(ctx, 0, -scale * 0.14, scale * 0.31, seed * 3 + 11, 0.4);
+  ctx.fill();
+  ctx.restore();
+
+  // --- master's aura: a glow, not a ring, so the selection enso stays unique -
+  if (master) {
+    ctx.save();
+    const g = ctx.createRadialGradient(0, -scale * 0.72, 0, 0, -scale * 0.72, scale * 0.95);
+    g.addColorStop(0, "rgba(231,194,95," + 0.42 * alpha + ")");
+    g.addColorStop(0.55, "rgba(214,163,58," + 0.2 * alpha + ")");
+    g.addColorStop(1, "rgba(214,163,58,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(-scale, -scale * 1.7, scale * 2, scale * 2);
+    ctx.restore();
+    // staff across the back
+    brush(ctx, [P(-0.34, -0.18), P(0.0, -0.76), P(0.32, -1.34)],
+      [scale * 0.032, scale * 0.04, scale * 0.026], C.goldDk,
+      { seed: seed + 9, jit: 0.1, bleed: 0.5, alpha: 0.8 * alpha });
+  }
+
+  // --- hakama: waisted, then flaring to the hem ----------------------------
+  brush(ctx, [
+    P(idle * 0.5, -0.72), P(idle * 0.7 + stance * 0.4, -0.5),
+    P(idle + stance * 0.8, -0.26), P(idle + stance, -0.02),
+  ], [scale * 0.21, scale * 0.25, scale * 0.32, scale * 0.38],
+    ink.core, { seed: seed, jit: 0.14, bleed: 1, alpha: alpha });
+
+  // hem flick, cloth caught mid-step
+  brush(ctx, [P(stance - 0.2, -0.04), P(stance - 0.3, -0.12), P(stance - 0.36, -0.26)],
+    [scale * 0.085, scale * 0.05, scale * 0.018], ink.core,
+    { seed: seed + 2, jit: 0.2, bleed: 0.7, alpha: 0.9 * alpha });
+
+  // --- torso, narrowing into the waist -------------------------------------
+  brush(ctx, [P(idle * 0.3, -1.0), P(idle * 0.4, -0.84), P(idle * 0.5, -0.66)],
+    [scale * 0.27, scale * 0.23, scale * 0.21], ink.core,
+    { seed: seed + 1, jit: 0.12, bleed: 0.9, alpha: alpha });
+
+  // --- shoulders -----------------------------------------------------------
+  brush(ctx, [P(-0.21, -0.97), P(0, -1.02), P(0.21, -0.97)],
+    [scale * 0.09, scale * 0.22, scale * 0.09], ink.core,
+    { seed: seed + 3, jit: 0.12, bleed: 0.8, alpha: alpha });
+
+  // --- arms: lead arm thrust forward, rear arm cocked back -----------------
+  brush(ctx, [P(-0.17, -0.94), P(-0.36, -0.86 + armLift), P(-0.5, -0.72 + armLift)],
+    [scale * 0.1, scale * 0.075, scale * 0.05], ink.core,
+    { seed: seed + 4, jit: 0.16, bleed: 0.6, alpha: alpha });
+  ctx.save();                                        // lead hand
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = ink.core;
+  inkBlob(ctx, -0.53 * scale, (-0.7 + armLift) * scale, scale * 0.055, seed * 5 + 21, 0.25);
+  ctx.fill();
+  ctx.restore();
+  brush(ctx, [P(0.17, -0.94), P(0.34, -0.9 - armLift), P(0.42, -1.02 - armLift)],
+    [scale * 0.1, scale * 0.07, scale * 0.045], ink.core,
+    { seed: seed + 6, jit: 0.16, bleed: 0.6, alpha: alpha });
+
+  // --- obi, its knot, and a trailing tail ----------------------------------
+  const tail = RM ? 0 : Math.sin(t * 0.0022 + seed) * 0.055;
+  brush(ctx, [P(-0.19, -0.68), P(0, -0.7), P(0.19, -0.68)],
+    [scale * 0.055, scale * 0.085, scale * 0.055], C.gold,
+    { seed: seed + 7, jit: 0.1, bleed: 0.3, alpha: 0.68 * alpha });
+  ctx.save();
+  ctx.globalAlpha = 0.75 * alpha;
+  ctx.fillStyle = C.goldDk;
+  inkBlob(ctx, 0.14 * scale, -0.69 * scale, scale * 0.05, seed * 11 + 5, 0.3);
+  ctx.fill();
+  ctx.restore();
+  brush(ctx, [P(0.17, -0.67), P(0.29 + tail, -0.5), P(0.25 + tail * 1.6, -0.28)],
+    [scale * 0.06, scale * 0.035, scale * 0.012], ink.lift,
+    { seed: seed + 8, jit: 0.22, bleed: 0.4, alpha: 0.7 * alpha });
+
+  // --- a thin light edge, so the ink reads as cloth and not a silhouette ---
+  brush(ctx, [P(-0.12, -0.92), P(-0.15, -0.6), P(-0.2, -0.16)],
+    [scale * 0.022, scale * 0.028, scale * 0.026], "rgba(250,240,216,.9)",
+    { seed: seed + 10, jit: 0.1, bleed: 0, alpha: 0.15 * alpha });
+
+  // --- neck and head -------------------------------------------------------
+  brush(ctx, [P(0, -1.0), P(0, -1.08)], [scale * 0.09, scale * 0.09], ink.core,
+    { seed: seed + 14, jit: 0.06, bleed: 0.4, alpha: alpha });
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = ink.core;
+  ctx.translate(0, -scale * 1.22);
+  ctx.scale(0.92, 1.06);                   // a head, not a ball
+  inkBlob(ctx, 0, 0, scale * 0.17, seed * 7 + 3, 0.14);
+  ctx.fill();
+  ctx.restore();
+
+  if (master) {
+    // kasa: a wide conical hat over the head, gold at the rim
+    brush(ctx, [P(-0.42, -1.29), P(-0.22, -1.44), P(0, -1.5), P(0.22, -1.44), P(0.42, -1.29)],
+      [scale * 0.028, scale * 0.1, scale * 0.12, scale * 0.1, scale * 0.028], ink.core,
+      { seed: seed + 11, jit: 0.09, bleed: 0.8, alpha: alpha });
+    brush(ctx, [P(-0.44, -1.27), P(0, -1.33), P(0.44, -1.27)],
+      [scale * 0.02, scale * 0.028, scale * 0.02], C.goldLt,
+      { seed: seed + 12, jit: 0.08, bleed: 0.3, alpha: 0.95 * alpha });
+  } else {
+    // topknot
+    brush(ctx, [P(0.01, -1.36), P(0.05, -1.44), P(-0.01, -1.5)],
+      [scale * 0.05, scale * 0.036, scale * 0.016], ink.core,
+      { seed: seed + 13, jit: 0.16, bleed: 0.5, alpha: alpha });
+  }
+
+  ctx.restore();
+}
+
+/* ==========================================================================
+   7. State
+   ========================================================================== */
+
+const S = {
+  lang: "fi",
+  mode: "pass",           // 'pass' | 'side' | 'online'
+  sets: { base: true, sensei: false, custom: false },
+  sound: true,
+  board: null,
+  history: [],            // { board, lastMove } snapshots for undo
+  selCard: null,
+  selSrc: null,
+  lastMove: null,         // { src, dst, side } — faint trail on the mat
+  viewSide: "red",        // which school sits at the bottom of the screen
+  anim: null,             // move in flight
+  animTimer: 0,           // backstop so a move resolves even without frames
+  drag: null,             // { src, x, y, cards:[ids], targets:[{pt,card}] }
+  fx: [],
+  turns: 0,
+  captures: 0,
+  screen: "menu",
+  // online play: the server owns the board, this is just what we know of it
+  net: {
+    on: false,            // true while a networked game is in progress
+    side: null,           // which school this device plays
+    opponent: false,      // is the other seat occupied and connected
+    pending: false,       // a move is out on the wire, awaiting the verdict
+    synced: false,        // has the first authoritative state arrived
+    link: "live",         // 'live' | 'reconnecting' | 'offline'
+  },
+};
+
+const isOnline = () => S.mode === "online" && S.net.on;
+
+/* --------------------------------------------------------------------------
+   Saved preferences: colours, card favourites/blocks/picks, and custom cards
+   -------------------------------------------------------------------------- */
+
+const PREFS_KEY = "onitama.prefs.v1";
+
+const P = {
+  colors: { ...DEFAULT_COLORS },
+  fav: [],          // card ids hearted
+  blocked: [],      // ids kept out of the draw
+  picked: [],       // an exact play set; when 5 or more, it *is* the deck
+  custom: [],       // player-drawn cards, ids from Onitama.CUSTOM_BASE up
+};
+
+function loadPrefs() {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) {
+      const j = JSON.parse(raw);
+      if (j && typeof j === "object") {
+        if (j.colors) P.colors = { ...DEFAULT_COLORS, ...j.colors };
+        for (const k of ["fav", "blocked", "picked"]) if (Array.isArray(j[k])) P[k] = j[k];
+        if (Array.isArray(j.custom)) P.custom = j.custom;
+      }
+    }
+  } catch (e) { /* corrupt or unavailable storage: fall back to defaults */ }
+  window.Onitama.setCustomCards(P.custom);
+}
+
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(P)); } catch (e) { /* full or private */ }
+}
+
+/** Re-derive every school-coloured surface from the two base colours. */
+function applyColors() {
+  SIDE_INK = { red: inkPalette(P.colors.red), blue: inkPalette(P.colors.blue) };
+  C.crimson = P.colors.red;
+  C.indigo = P.colors.blue;
+  const root = document.documentElement.style;
+  root.setProperty("--crimson", P.colors.red);
+  root.setProperty("--indigo", P.colors.blue);
+  root.setProperty("--crimson-lt", SIDE_INK.red.bleed);
+  root.setProperty("--indigo-lt", SIDE_INK.blue.bleed);
+  B.mat = null;            // the temple gates are baked in the school colours
+  B.size = 0;
+}
+
+/**
+ * The deck a new game is dealt from.
+ * An exact pick of five or more cards wins outright — that is the deck. Failing
+ * that, it is the chosen sets minus anything the player has blocked.
+ */
+function deckIds() {
+  const known = (id) => !!CARDS[id];
+  const picked = P.picked.filter(known);
+  if (picked.length >= 5) return picked;
+
+  const pool = [];
+  if (S.sets.base) pool.push(...SET_BASE);
+  if (S.sets.sensei) pool.push(...SET_SENSEI);
+  if (S.sets.custom) pool.push(...P.custom.map((c) => c.id).filter(known));
+
+  const blocked = new Set(P.blocked);
+  const left = pool.filter((id) => !blocked.has(id));
+  if (left.length >= 5) return left;
+  return pool.length >= 5 ? pool : SET_BASE.slice();
+}
+
+/* ==========================================================================
+   8. Audio — a tiny synth, so there are no assets to load
+   ========================================================================== */
+
+const Audio_ = {
+  ctx: null,
+  dead: false,
+  ensure() {
+    if (!S.sound || this.dead) return null;
+    try {
+      if (!this.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) { this.dead = true; return null; }
+        this.ctx = new AC();
+      }
+      if (this.ctx.state === "suspended") this.ctx.resume();
+      return this.ctx;
+    } catch (e) {
+      this.dead = true;      // no audio here — never let it block the game
+      return null;
+    }
+  },
+  noise(dur) {
+    const ctx = this.ctx;
+    const n = Math.floor(ctx.sampleRate * dur);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    return src;
+  },
+  tone(freq, dur, type, gain, slideTo) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, ctx.currentTime + dur);
+    g.gain.setValueAtTime(0, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(gain, ctx.currentTime + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.connect(g).connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + dur + 0.02);
+  },
+  play(kind) {
+    try { this.render(kind); } catch (e) { this.dead = true; }
+  },
+  render(kind) {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    if (kind === "tap") {
+      this.tone(760, 0.06, "triangle", 0.05, 520);
+    } else if (kind === "card") {                    // paper sliding
+      const s = this.noise(0.16);
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass"; f.frequency.value = 2600; f.Q.value = 0.7;
+      const g = ctx.createGain(); g.gain.value = 0.06;
+      s.connect(f).connect(g).connect(ctx.destination);
+      s.start();
+    } else if (kind === "place") {                   // stone on cloth
+      this.tone(180, 0.14, "sine", 0.14, 96);
+      this.tone(430, 0.05, "triangle", 0.04, 300);
+    } else if (kind === "capture") {                 // strike, then splash
+      this.tone(150, 0.28, "sine", 0.18, 62);
+      const s = this.noise(0.3);
+      const f = ctx.createBiquadFilter();
+      f.type = "lowpass"; f.frequency.value = 1500;
+      const g = ctx.createGain(); g.gain.value = 0.14;
+      s.connect(f).connect(g).connect(ctx.destination);
+      s.start();
+    } else if (kind === "win") {                     // gong
+      this.tone(110, 2.4, "sine", 0.2);
+      this.tone(165, 2.0, "sine", 0.1);
+      this.tone(330, 1.2, "sine", 0.04);
+      const s = this.noise(0.5);
+      const f = ctx.createBiquadFilter();
+      f.type = "bandpass"; f.frequency.value = 900; f.Q.value = 1.2;
+      const g = ctx.createGain(); g.gain.value = 0.1;
+      s.connect(f).connect(g).connect(ctx.destination);
+      s.start();
+    } else if (kind === "deny") {
+      this.tone(150, 0.1, "square", 0.03, 110);
+    }
+  },
+};
+
+/* ==========================================================================
+   9. Backdrop — an ink-wash valley, baked once and drifted over
+   ========================================================================== */
+
+const BD = { cv: null, ctx: null, base: null, w: 0, h: 0, petals: [] };
+
+function ridge(x, w, params) {
+  let y = 0;
+  for (const [amp, freq, phase] of params) y += amp * Math.sin((x / w) * freq + phase);
+  return y;
+}
+
+function buildBackdrop(w, h) {
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const x = cv.getContext("2d");
+
+  // paper ground
+  x.drawImage(paperTexture(w, h, 5, [
+    [0, "#F4E7CA"], [0.34, "#E3CEA4"], [0.7, "#CBAC7E"], [1, "#B08D62"],
+  ], 10), 0, 0);
+
+  // light breaking through the mist, high and centred
+  const bloom = x.createRadialGradient(w * 0.5, h * 0.14, 0, w * 0.5, h * 0.14, w * 0.85);
+  bloom.addColorStop(0, "rgba(255,250,232,.55)");
+  bloom.addColorStop(0.5, "rgba(255,246,224,.12)");
+  bloom.addColorStop(1, "rgba(255,246,224,0)");
+  x.fillStyle = bloom;
+  x.fillRect(0, 0, w, h);
+
+  // four ridges, far to near — thinner ink far away
+  const layers = [
+    { base: 0.40, alpha: 0.10, p: [[h * 0.055, 3.1, 0.4], [h * 0.03, 7.3, 1.1]] },
+    { base: 0.47, alpha: 0.14, p: [[h * 0.07, 2.3, 2.2], [h * 0.028, 5.7, 0.2]] },
+    { base: 0.60, alpha: 0.20, p: [[h * 0.09, 1.7, 4.1], [h * 0.035, 4.2, 2.9]] },
+    { base: 0.80, alpha: 0.26, p: [[h * 0.10, 1.2, 5.6], [h * 0.04, 3.1, 1.4]] },
+  ];
+  layers.forEach((Ly, li) => {
+    x.save();
+    x.globalAlpha = Ly.alpha;
+    x.fillStyle = li < 2 ? C.ink3 : C.ink2;
+    x.beginPath();
+    x.moveTo(0, h);
+    for (let px = 0; px <= w; px += 3) {
+      x.lineTo(px, h * Ly.base - ridge(px, w, Ly.p));
+    }
+    x.lineTo(w, h);
+    x.closePath();
+    x.fill();
+    x.restore();
+  });
+
+  // pagoda on the second ridge, as on the box
+  (function pagoda() {
+    const px = w * 0.52;
+    const py = h * 0.47 - ridge(px, w, layers[1].p) - h * 0.005;
+    const s = Math.min(w, h) * 0.11;
+    x.save();
+    x.globalAlpha = 0.30;
+    x.fillStyle = C.ink2;
+    for (let i = 0; i < 3; i++) {
+      const ry = py - i * s * 0.42;
+      const rw = s * (0.92 - i * 0.19);
+      // eave: a swept roof line
+      brush(x, [[px - rw, ry], [px - rw * 0.45, ry - s * 0.1], [px, ry - s * 0.16],
+                [px + rw * 0.45, ry - s * 0.1], [px + rw, ry]],
+        [s * 0.02, s * 0.075, s * 0.085, s * 0.075, s * 0.02], C.ink2,
+        { seed: 30 + i, jit: 0.1, bleed: 0.6, alpha: 1 });
+      // storey wall
+      x.globalAlpha = 0.24;
+      x.fillRect(px - rw * 0.42, ry, rw * 0.84, s * 0.3);
+      x.globalAlpha = 0.30;
+    }
+    // spire
+    brush(x, [[px, py - s * 1.0], [px, py - s * 1.42]], [s * 0.05, s * 0.012], C.ink2,
+      { seed: 41, jit: 0.1, bleed: 0.5, alpha: 1 });
+    x.restore();
+  })();
+
+  // a few pines on the near ridge
+  const pr = rng(88);
+  for (let i = 0; i < 7; i++) {
+    const px = w * (0.06 + pr() * 0.88);
+    const py = h * 0.8 - ridge(px, w, layers[3].p) + h * 0.01;
+    const s = Math.min(w, h) * (0.03 + pr() * 0.025);
+    x.save();
+    x.globalAlpha = 0.3;
+    brush(x, [[px, py], [px + s * 0.05, py - s * 0.6], [px - s * 0.02, py - s]],
+      [s * 0.09, s * 0.06, s * 0.02], C.ink, { seed: 50 + i, jit: 0.2, bleed: 0.6, alpha: 1 });
+    for (let b = 0; b < 3; b++) {
+      const by = py - s * (0.35 + b * 0.24);
+      const bw = s * (0.5 - b * 0.11);
+      brush(x, [[px - bw, by - s * 0.06], [px, by], [px + bw, by - s * 0.08]],
+        [s * 0.02, s * 0.05, s * 0.02], C.ink, { seed: 60 + i * 3 + b, jit: 0.25, bleed: 0.5, alpha: 1 });
+    }
+    x.restore();
+  }
+
+  // the gold enso, arcing out past the mat and through the space around it
+  ensoRing(x, w * 0.5, h * 0.5, Math.min(w * 0.86, h * 0.34), C.gold, {
+    from: -0.9, sweep: TAU * 0.93, width: Math.min(w, h) * 0.055, seed: 12, alpha: 0.26, bleed: 0.8,
+  });
+
+  // age stains
+  const sr = rng(202);
+  for (let i = 0; i < 9; i++) {
+    x.save();
+    x.globalAlpha = 0.05;
+    x.fillStyle = "#7A5A34";
+    inkBlob(x, sr() * w, sr() * h, Math.min(w, h) * (0.04 + sr() * 0.1), 300 + i, 0.5);
+    x.fill();
+    x.restore();
+  }
+
+  // vignette
+  const vig = x.createRadialGradient(w * 0.5, h * 0.44, Math.min(w, h) * 0.25, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
+  vig.addColorStop(0, "rgba(37,26,17,0)");
+  vig.addColorStop(1, "rgba(37,26,17,.42)");
+  x.fillStyle = vig;
+  x.fillRect(0, 0, w, h);
+
+  return cv;
+}
+
+function layoutBackdrop() {
+  const cv = $("#backdrop");
+  // half resolution: cheap to composite, and the upscale reads as ink-wash blur
+  const w = Math.max(2, Math.floor(window.innerWidth * 0.5));
+  const h = Math.max(2, Math.floor(window.innerHeight * 0.5));
+  cv.width = w; cv.height = h;
+  BD.cv = cv; BD.ctx = cv.getContext("2d"); BD.w = w; BD.h = h;
+  BD.base = buildBackdrop(w, h);
+  const r = rng(999);
+  BD.petals = Array.from({ length: 12 }, () => ({
+    x: r() * w, y: r() * h, vy: 0.06 + r() * 0.14, vx: -0.05 + r() * 0.1,
+    s: 1.1 + r() * 2.4, a: r() * TAU, va: -0.01 + r() * 0.02,
+    tint: r() < 0.3 ? C.crimson : C.ink2, alpha: 0.16 + r() * 0.24,
+  }));
+}
+
+function drawBackdrop(t) {
+  const x = BD.ctx, w = BD.w, h = BD.h;
+  if (!x) return;
+  x.clearRect(0, 0, w, h);
+  x.drawImage(BD.base, 0, 0);
+
+  // mist bands drifting across the ridges
+  const bands = [[0.42, 0.055, 0.011, 0.30], [0.56, 0.07, -0.008, 0.24], [0.72, 0.09, 0.006, 0.18]];
+  bands.forEach((b, i) => {
+    const [cy, hh, sp, al] = b;
+    const off = RM ? 0 : Math.sin(t * 0.00008 * (i + 1) + i * 2) * w * 0.12 + t * sp * 0.02;
+    const g = x.createLinearGradient(0, h * (cy - hh), 0, h * (cy + hh));
+    g.addColorStop(0, "rgba(250,242,222,0)");
+    g.addColorStop(0.5, "rgba(250,242,222," + al + ")");
+    g.addColorStop(1, "rgba(250,242,222,0)");
+    x.save();
+    x.translate(((off % (w * 2)) + w * 2) % (w * 2) - w, 0);
+    x.fillStyle = g;
+    x.fillRect(0, h * (cy - hh), w * 2, h * hh * 2);
+    x.restore();
+  });
+
+  if (!RM) {
+    for (const p of BD.petals) {
+      p.y += p.vy; p.x += p.vx + Math.sin(p.y * 0.02) * 0.12; p.a += p.va;
+      if (p.y > h + 6) { p.y = -6; p.x = Math.random() * w; }
+      if (p.x < -6) p.x = w + 6; else if (p.x > w + 6) p.x = -6;
+      x.save();
+      x.globalAlpha = p.alpha;
+      x.translate(p.x, p.y);
+      x.rotate(p.a);
+      x.fillStyle = p.tint;
+      x.beginPath();
+      x.ellipse(0, 0, p.s, p.s * 0.42, 0, 0, TAU);
+      x.fill();
+      x.restore();
+    }
+  }
+}
+
+/* ==========================================================================
+   10. Board canvas
+   ========================================================================== */
+
+const B = { cv: null, ctx: null, size: 0, dpr: 1, inset: 0, cell: 0, mat: null };
+
+// Card height in px, chosen by sizeCards(); layoutBoard() needs it to work out
+// how much room is left for the mat.
+let cardH = 100;
+
+/**
+ * Height of everything in the stage that is neither a card row nor the mat.
+ * Measured from elements whose size never depends on the mat, so there is no
+ * feedback loop — and it picks up the safe-area padding for free.
+ */
+function stageChrome() {
+  const st = $("#stage");
+  const cs = getComputedStyle(st);
+  const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const gaps = (parseFloat(cs.rowGap) || 0) * 4;
+  const notes = 32;                       // the two hint lines and their gaps
+  return pad + gaps + notes +
+    ($("#turnbar").offsetHeight || 30) + ($("#rail").offsetHeight || 34);
+}
+
+function layoutBoard() {
+  const cv = $("#board");
+  // Derived from the viewport rather than measured from the wrapper: the canvas
+  // is a fixed-size child, so measuring its own parent would let the old size
+  // hold the row open and the mat could never shrink.
+  const availH = window.innerHeight - stageChrome() - cardH * 2;
+  const size = Math.max(100, Math.floor(Math.min(window.innerWidth - 16, availH)));
+  if (size === B.size && B.mat) return;
+  B.size = size;
+  B.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  cv.width = Math.floor(size * B.dpr);
+  cv.height = Math.floor(size * B.dpr);
+  cv.style.width = size + "px";
+  cv.style.height = size + "px";
+  B.cv = cv;
+  B.ctx = cv.getContext("2d");
+  B.inset = Math.round(size * 0.055);
+  B.cell = (size - B.inset * 2) / 5;
+  B.mat = buildMat(size);
+}
+
+/** Square centre in canvas pixels, honouring which school is at the bottom. */
+function sq2px(x, y) {
+  let c = x, r = y;
+  if (S.viewSide === "blue") { c = 4 - x; r = 4 - y; }
+  return [B.inset + (c + 0.5) * B.cell, B.inset + (r + 0.5) * B.cell];
+}
+
+function px2sq(px, py) {
+  const c = Math.floor((px - B.inset) / B.cell);
+  const r = Math.floor((py - B.inset) / B.cell);
+  if (c < 0 || c > 4 || r < 0 || r > 4) return null;
+  return S.viewSide === "blue" ? { x: 4 - c, y: 4 - r } : { x: c, y: r };
+}
+
+/** The mat: cloth, brush grid, two temple gates, a corner seal. Baked once. */
+function buildMat(size) {
+  const cv = document.createElement("canvas");
+  const dpr = B.dpr;
+  cv.width = Math.floor(size * dpr);
+  cv.height = Math.floor(size * dpr);
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const inset = B.inset, cell = B.cell, grid = cell * 5;
+
+  // cloth
+  x.drawImage(paperTexture(size, size, 17, [
+    [0, "#EEDDBA"], [0.4, "#E0C9A0"], [0.75, "#D2B589"], [1, "#BE9E71"],
+  ], 14), 0, 0, size, size);
+
+  // worn corners
+  const cr = rng(41);
+  for (let i = 0; i < 7; i++) {
+    x.save();
+    x.globalAlpha = 0.055;
+    x.fillStyle = "#6E4F2C";
+    inkBlob(x, cr() * size, cr() * size, size * (0.03 + cr() * 0.08), 400 + i, 0.5);
+    x.fill();
+    x.restore();
+  }
+
+  // faint chequer, so the 25 cells read as panels of cloth
+  for (let r = 0; r < 5; r++) {
+    for (let c = 0; c < 5; c++) {
+      if ((r + c) % 2) continue;
+      x.save();
+      x.globalAlpha = 0.035;
+      x.fillStyle = C.ink3;
+      x.fillRect(inset + c * cell, inset + r * cell, cell, cell);
+      x.restore();
+    }
+  }
+
+  // temple emblems, brushed under the grid so pieces never fight them
+  const gate = (col, row, colour) => {
+    const cx = inset + (col + 0.5) * cell;
+    const cy = inset + (row + 0.5) * cell;
+    const s = cell * 0.5;
+    x.save();
+    const g = x.createRadialGradient(cx, cy, 0, cx, cy, s * 1.3);
+    g.addColorStop(0, "rgba(231,194,95,.42)");
+    g.addColorStop(0.6, "rgba(231,194,95,.14)");
+    g.addColorStop(1, "rgba(231,194,95,0)");
+    x.fillStyle = g;
+    x.fillRect(cx - s * 1.4, cy - s * 1.4, s * 2.8, s * 2.8);
+    ensoRing(x, cx, cy, s * 0.86, C.gold, {
+      from: -1.2, sweep: TAU * 0.94, width: cell * 0.05, seed: 130 + row, alpha: 0.6, bleed: 0.7,
+    });
+    // 門 — the gate itself, in calligraphy rather than a drawn torii
+    x.globalAlpha = 0.3;
+    x.fillStyle = colour;
+    x.font = "500 " + cell * 0.52 + "px " + getComputedStyle(document.body).fontFamily;
+    x.textAlign = "center";
+    x.textBaseline = "middle";
+    x.fillText("門", cx, cy + cell * 0.02);
+    x.restore();
+  };
+  gate(2, 0, C.indigo);
+  gate(2, 4, C.crimson);
+
+  // grid: four strokes each way, drawn with a drying brush
+  for (let i = 1; i < 5; i++) {
+    const p = inset + i * cell;
+    brush(x, [[inset, p], [size / 2, p + cell * 0.012], [size - inset, p]],
+      [cell * 0.026, cell * 0.04, cell * 0.024], C.ink,
+      { seed: 90 + i, jit: 0.3, bleed: 0.6, alpha: 0.38 });
+    brush(x, [[p, inset], [p + cell * 0.012, size / 2], [p, size - inset]],
+      [cell * 0.026, cell * 0.04, cell * 0.024], C.ink,
+      { seed: 110 + i, jit: 0.3, bleed: 0.6, alpha: 0.38 });
+  }
+
+  // the grid's own boundary — four strokes closing the 25 cells
+  const gb = [
+    [[inset, inset], [size / 2, inset - cell * 0.012], [size - inset, inset]],
+    [[size - inset, inset], [size - inset + cell * 0.012, size / 2], [size - inset, size - inset]],
+    [[size - inset, size - inset], [size / 2, size - inset + cell * 0.012], [inset, size - inset]],
+    [[inset, size - inset], [inset - cell * 0.012, size / 2], [inset, inset]],
+  ];
+  gb.forEach((pts, i) => {
+    brush(x, pts, [cell * 0.034, cell * 0.05, cell * 0.032], C.ink,
+      { seed: 150 + i, jit: 0.2, bleed: 0.7, alpha: 0.66 });
+  });
+
+  // gold hairline just outside the grid, then the mat's own ink border
+  x.save();
+  x.globalAlpha = 0.45;
+  x.strokeStyle = C.gold;
+  x.lineWidth = Math.max(1, size * 0.003);
+  const gi = inset - cell * 0.13;
+  x.strokeRect(gi, gi, size - gi * 2, size - gi * 2);
+  x.restore();
+
+  const f = inset * 0.34;
+  const frame = [
+    [[f, f], [size / 2, f * 0.8], [size - f, f]],
+    [[size - f, f], [size - f * 0.8, size / 2], [size - f, size - f]],
+    [[size - f, size - f], [size / 2, size - f * 0.8], [f, size - f]],
+    [[f, size - f], [f * 0.8, size / 2], [f, f]],
+  ];
+  frame.forEach((pts, i) => {
+    brush(x, pts, [inset * 0.08, inset * 0.13, inset * 0.08], C.ink,
+      { seed: 70 + i, jit: 0.2, bleed: 0.8, alpha: 0.6 });
+  });
+
+  // mat seal, bottom-right
+  x.save();
+  x.globalAlpha = 0.16;
+  x.fillStyle = C.seal;
+  const ss = size * 0.05;
+  x.fillRect(size - inset - ss * 1.1, size - inset - ss * 1.1, ss, ss);
+  x.globalAlpha = 0.5;
+  x.fillStyle = "rgba(250,240,220,.9)";
+  x.font = (ss * 0.72) + "px " + getComputedStyle(document.body).fontFamily;
+  x.textAlign = "center";
+  x.textBaseline = "middle";
+  x.fillText("鬼", size - inset - ss * 0.6, size - inset - ss * 0.58);
+  x.restore();
+
+  return cv;
+}
+
+/* ==========================================================================
+   11. Effects
+   ========================================================================== */
+
+function spawnSplash(px, py, side, big) {
+  const r = rng(Math.floor(px * 31 + py * 17 + performance.now()));
+  const drops = [];
+  const n = big ? 24 : 17;
+  for (let i = 0; i < n; i++) {
+    const a = r() * TAU;
+    const sp = (0.35 + r() * 1.6) * B.cell * (big ? 0.058 : 0.045);
+    drops.push({
+      x: px, y: py, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      r: B.cell * (0.018 + r() * 0.05) * (big ? 1.3 : 1), seed: Math.floor(r() * 1e6), life: 1,
+    });
+  }
+  const stains = [];
+  for (let i = 0; i < (big ? 6 : 4); i++) {
+    const a = r() * TAU, d = r() * B.cell * 0.38;
+    stains.push({
+      x: px + Math.cos(a) * d, y: py + Math.sin(a) * d,
+      r: B.cell * (0.06 + r() * 0.13), seed: Math.floor(r() * 1e6),
+    });
+  }
+  S.fx.push({ kind: "splash", t0: performance.now(), dur: big ? 1500 : 1100, side, drops, stains, px, py });
+  S.fx.push({ kind: "ring", t0: performance.now(), dur: 520, px, py, side });
+}
+
+function drawFx(ctx, now) {
+  S.fx = S.fx.filter((f) => now - f.t0 < f.dur);
+  for (const f of S.fx) {
+    const p = (now - f.t0) / f.dur;
+    const ink = SIDE_INK[f.side || "red"];
+    if (f.kind === "ring") {
+      // an ink shockwave, brushed rather than drafted
+      const e = easeOut(p);
+      ensoRing(ctx, f.px, f.py, B.cell * (0.13 + e * 0.62), ink.core, {
+        from: -0.3, sweep: TAU, width: B.cell * 0.085 * (1 - p * 0.75), seed: 44,
+        alpha: (1 - p) * 0.6, bleed: 0.7,
+      });
+    } else if (f.kind === "splash") {
+      ctx.save();
+      // stains settle in, then fade
+      const stainA = p < 0.15 ? p / 0.15 : 1 - Math.pow((p - 0.15) / 0.85, 2);
+      ctx.globalAlpha = clamp(stainA, 0, 1) * 0.62;
+      ctx.fillStyle = ink.core;
+      for (const s of f.stains) {
+        inkBlob(ctx, s.x, s.y, s.r * (0.7 + easeOut(clamp(p * 4, 0, 1)) * 0.4), s.seed, 0.5);
+        ctx.fill();
+      }
+      // droplets fly, decelerate and fade, each dragging a tail of wet ink
+      const e = easeOut(clamp(p * 1.7, 0, 1));
+      const ePrev = easeOut(clamp(p * 1.7 - 0.16, 0, 1));
+      const a = clamp(1 - p * 1.2, 0, 1);
+      for (const d of f.drops) {
+        const dx = d.x + d.vx * e * 22, dy = d.y + d.vy * e * 22;
+        const bx = d.x + d.vx * ePrev * 22, by = d.y + d.vy * ePrev * 22;
+        const rr = d.r * (1 - p * 0.3);
+        brush(ctx, [[bx, by], [dx, dy]], [rr * 0.3, rr * 1.15], ink.core,
+          { seed: d.seed, jit: 0.25, bleed: 0.5, alpha: a * 0.75 });
+        ctx.globalAlpha = a * 0.95;
+        ctx.fillStyle = ink.core;
+        inkBlob(ctx, dx, dy, rr, d.seed, 0.5);
+        ctx.fill();
+      }
+      ctx.restore();
+    } else if (f.kind === "victory") {
+      const e = easeInOut(clamp(p * 1.4, 0, 1));
+      ctx.save();
+      ensoRing(ctx, f.px, f.py, B.cell * (0.7 + e * 0.5), C.goldLt, {
+        from: -1.6, sweep: TAU * 0.97 * e, width: B.cell * 0.11, seed: 8,
+        alpha: clamp(1 - (p - 0.6) / 0.4, 0, 1) * 0.95, bleed: 0.9,
+      });
+      ctx.restore();
+    }
+  }
+}
+
+/* ==========================================================================
+   12. Board render loop
+   ========================================================================== */
+
+let paused = false;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (paused) return;
+  drawBackdrop(now);
+  drawBoard(now);
+}
+
+function drawBoard(now) {
+  const ctx = B.ctx;
+  if (!ctx || !S.board) return;
+  const b = S.board;
+  ctx.setTransform(B.dpr, 0, 0, B.dpr, 0, 0);
+  ctx.clearRect(0, 0, B.size, B.size);
+  ctx.drawImage(B.mat, 0, 0, B.size, B.size);
+
+  const cell = B.cell;
+  const pulse = RM ? 0.5 : 0.5 + Math.sin(now * 0.004) * 0.5;
+
+  // --- last move: a faint trailing stroke ---------------------------------
+  if (S.lastMove && !S.anim) {
+    const [ax, ay] = sq2px(S.lastMove.src.x, S.lastMove.src.y);
+    const [bx, by] = sq2px(S.lastMove.dst.x, S.lastMove.dst.y);
+    brush(ctx, [[ax, ay], [(ax + bx) / 2, (ay + by) / 2], [bx, by]],
+      [cell * 0.05, cell * 0.09, cell * 0.03], SIDE_INK[S.lastMove.side].bleed,
+      { seed: 200, jit: 0.2, bleed: 0.5, alpha: 0.2 });
+  }
+
+  // --- what the current selection makes available -------------------------
+  // With a piece picked up, show everywhere it can go — from both cards unless
+  // one has been chosen deliberately.
+  let targets = [];
+  if (S.drag) targets = S.drag.targets.map((t) => t.pt);
+  else if (S.selSrc) targets = movesFrom(b, S.selSrc, S.selCard).map((t) => t.pt);
+
+  // before a piece is picked, wash the squares of pieces that can actually move
+  if (!S.selSrc && !S.anim && canAct()) {
+    ctx.save();
+    for (const p of movablePieces(b, S.selCard)) {
+      const [px, py] = sq2px(p.x, p.y);
+      const g = ctx.createRadialGradient(px, py, 0, px, py, cell * 0.58);
+      const a = 0.2 + pulse * 0.14;
+      g.addColorStop(0, "rgba(231,194,95," + a + ")");
+      g.addColorStop(0.65, "rgba(231,194,95," + a * 0.55 + ")");
+      g.addColorStop(1, "rgba(231,194,95,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(px - cell * 0.5, py - cell * 0.5, cell, cell);
+    }
+    ctx.restore();
+  }
+
+  // --- selected square: gold enso + warm wash ------------------------------
+  const selSq = S.drag ? S.drag.src : S.selSrc;
+  if (selSq) {
+    const [px, py] = sq2px(selSq.x, selSq.y);
+    ctx.save();
+    const g = ctx.createRadialGradient(px, py, 0, px, py, cell * 0.62);
+    g.addColorStop(0, "rgba(231,194,95,.3)");
+    g.addColorStop(1, "rgba(231,194,95,0)");
+    ctx.fillStyle = g;
+    ctx.fillRect(px - cell * 0.7, py - cell * 0.7, cell * 1.4, cell * 1.4);
+    ensoRing(ctx, px, py, cell * 0.42, C.goldLt, {
+      from: -1.1, sweep: TAU * 0.95, width: cell * 0.055, seed: 210,
+      alpha: 0.55 + pulse * 0.35, bleed: 0.7,
+    });
+    ctx.restore();
+  }
+
+  // --- legal targets -------------------------------------------------------
+  for (const t of targets) {
+    const [px, py] = sq2px(t.x, t.y);
+    const occ = pieceAt(b, t);
+    const goal = b.turn === "red" ? RED_GOAL : BLUE_GOAL;
+    const isGoal = same(t, goal) && selSq && same(selSq, kingOf(b, b.turn));
+    ctx.save();
+    if (occ) {
+      // capture: opponent-tinted ring with four ticks
+      const ink = SIDE_INK[occ.side];
+      ctx.globalAlpha = 0.55 + pulse * 0.4;
+      ctx.strokeStyle = ink.bleed;
+      ctx.lineWidth = cell * 0.045;
+      ctx.beginPath();
+      ctx.arc(px, py, cell * 0.42, 0, TAU);
+      ctx.stroke();
+      ctx.lineWidth = cell * 0.03;
+      for (let i = 0; i < 4; i++) {
+        const a = i * (TAU / 4) + Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(px + Math.cos(a) * cell * 0.33, py + Math.sin(a) * cell * 0.33);
+        ctx.lineTo(px + Math.cos(a) * cell * 0.46, py + Math.sin(a) * cell * 0.46);
+        ctx.stroke();
+      }
+    } else if (isGoal) {
+      // the winning temple step
+      ctx.globalAlpha = 0.45 + pulse * 0.5;
+      ctx.fillStyle = C.goldLt;
+      inkBlob(ctx, px, py, cell * 0.2, 220, 0.25);
+      ctx.fill();
+      ensoRing(ctx, px, py, cell * 0.4, C.goldLt, {
+        from: -0.4, sweep: TAU * 0.98, width: cell * 0.05, seed: 221, alpha: 0.9, bleed: 0.8,
+      });
+    } else {
+      ctx.globalAlpha = 0.4 + pulse * 0.28;
+      ctx.fillStyle = C.ink2;
+      inkBlob(ctx, px, py, cell * 0.105 * (0.92 + pulse * 0.16), 230 + t.x * 5 + t.y, 0.3);
+      ctx.fill();
+      ctx.globalAlpha = 0.3 + pulse * 0.2;
+      ctx.strokeStyle = C.gold;
+      ctx.lineWidth = cell * 0.018;
+      ctx.beginPath();
+      ctx.arc(px, py, cell * 0.2, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // --- pieces --------------------------------------------------------------
+  const a = S.anim;
+  const hideAt = a ? a.dst : null;
+  const dragSrc = S.drag ? S.drag.src : null;
+  const figH = cell * 0.55;
+  const foot = cell * 0.34;          // stand the figure near the bottom of its square
+
+  const drawSide = (s) => {
+    for (const it of piecesOf(b, s)) {
+      if (!it.p) continue;
+      if (hideAt && same(it.p, hideAt) && a.side === s) continue;
+      if (dragSrc && same(it.p, dragSrc)) continue;
+      const [px, py] = sq2px(it.p.x, it.p.y);
+      const seed = it.p.x * 7 + it.p.y * 31 + (s === "red" ? 100 : 500) + (it.king ? 3 : 0);
+      drawWarrior(ctx, px, py + foot, figH, s, it.king, seed, now, null);
+    }
+  };
+  // draw the far school first so near pieces overlap correctly
+  drawSide(S.viewSide === "red" ? "blue" : "red");
+  drawSide(S.viewSide);
+
+  // --- the piece being captured, until impact ------------------------------
+  if (a && a.captured) {
+    const p = clamp((now - a.t0) / a.dur, 0, 1);
+    if (p < 0.72) {
+      const [px, py] = sq2px(a.captured.at.x, a.captured.at.y);
+      const seed = a.captured.at.x * 7 + a.captured.at.y * 31 + (a.captured.side === "red" ? 100 : 500);
+      drawWarrior(ctx, px, py + foot, figH, a.captured.side, a.captured.king, seed, now, null);
+    }
+  }
+
+  // --- the moving piece ----------------------------------------------------
+  if (a) {
+    const raw = clamp((now - a.t0) / a.dur, 0, 1);
+    const p = easeInOut(raw);
+    const [sx, sy] = sq2px(a.src.x, a.src.y);
+    const [dx, dy] = sq2px(a.dst.x, a.dst.y);
+    const cx = lerp(sx, dx, p);
+    const cy = lerp(sy, dy, p) - Math.sin(raw * Math.PI) * cell * 0.3;
+
+    // brush trail behind it
+    if (raw > 0.05) {
+      brush(ctx, [[sx, sy], [lerp(sx, cx, 0.5), lerp(sy, cy, 0.5) - cell * 0.1], [cx, cy]],
+        [cell * 0.02, cell * 0.07, cell * 0.11], SIDE_INK[a.side].bleed,
+        { seed: 240, jit: 0.2, bleed: 0.6, alpha: (1 - raw) * 0.45 });
+    }
+    const seed = a.src.x * 7 + a.src.y * 31 + (a.side === "red" ? 100 : 500) + (a.king ? 3 : 0);
+    ctx.save();
+    ctx.translate(cx, cy + foot);
+    const lift = 1 + Math.sin(raw * Math.PI) * 0.08;
+    ctx.scale(lift, lift);
+    drawWarrior(ctx, 0, 0, figH, a.side, a.king, seed, now, null);
+    ctx.restore();
+
+    if (a.captured && raw >= 0.72 && !a.splashed) {
+      a.splashed = true;
+      spawnSplash(dx, dy, a.captured.side, a.captured.king);
+      Audio_.play("capture");
+      buzz([16, 26, 22]);
+    }
+    if (raw >= 1) finishAnim();
+  }
+
+  // --- the piece under the finger ------------------------------------------
+  if (S.drag && S.drag.piece) {
+    const d = S.drag;
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.fillStyle = C.ink;
+    ctx.beginPath();
+    ctx.ellipse(d.x, d.y + foot * 0.8, figH * 0.42, figH * 0.14, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+    ctx.save();
+    ctx.translate(d.x, d.y - cell * 0.12 + foot * 0.5);
+    ctx.scale(1.16, 1.16);
+    drawWarrior(ctx, 0, 0, figH, d.piece.side, d.piece.king, d.seed, now, null);
+    ctx.restore();
+  }
+
+  drawFx(ctx, now);
+}
+
+/* ==========================================================================
+   13. Moves and turn flow
+   ========================================================================== */
+
+function pushHistory() {
+  S.history.push({ board: cloneBoard(S.board), lastMove: S.lastMove, turns: S.turns, captures: S.captures });
+  if (S.history.length > 60) S.history.shift();
+}
+
+function commitMove(cardId, src, dst) {
+  // Check locally first so an illegal tap is refused instantly, with no round
+  // trip — but online the server's verdict is the one that counts.
+  const res = applyMove(S.board, cardId, src, dst);
+  if (!res) { Audio_.play("deny"); return false; }
+
+  if (isOnline()) {
+    if (S.board.turn !== S.net.side || S.net.pending) { Audio_.play("deny"); return false; }
+    S.selCard = null;
+    S.selSrc = null;
+    S.drag = null;
+      S.net.pending = true;
+    Audio_.play("card");
+    buzz(12);
+    renderHands(null);
+    renderChrome();
+    Net.sendMove(cardId, src, dst).catch((err) => {
+      // Refused or timed out: nothing was applied, so simply resync and explain.
+      S.net.pending = false;
+      Audio_.play("deny");
+      toast(netError(err));
+      renderAll();
+    });
+    return true;
+  }
+
+  applyLocalResult(res, cardId, src, dst);
+  return true;
+}
+
+/** Apply an engine result to local state and start the move animation. */
+function applyLocalResult(res, cardId, src, dst) {
+  const mover = pieceAt(S.board, src);
+  const oldSpare = S.board.spare;
+  pushHistory();
+
+  const playedSlot = handOf(S.board, S.board.turn).indexOf(cardId);
+  S.board = res.board;
+  S.turns += 1;
+  if (res.captured) S.captures += 1;
+  S.selCard = null;
+  S.selSrc = null;
+  S.drag = null;
+
+  startMoveAnim({
+    src, dst, side: mover.side, king: mover.king,
+    captured: res.captured, winner: res.winner, reason: res.reason,
+  });
+
+  Audio_.play("card");
+  if (!res.captured) setTimeout(() => Audio_.play("place"), RM ? 0 : 260);
+  buzz(12);
+  renderHands({ flipFrom: { slot: playedSlot, side: mover.side, oldSpare, playedCard: cardId } });
+  renderChrome();
+}
+
+/** Animate a move — local or one the server reports the opponent made. */
+function startMoveAnim(m) {
+  S.lastMove = { src: { ...m.src }, dst: { ...m.dst }, side: m.side };
+  const dur = RM ? 1 : 340;
+  S.anim = {
+    t0: performance.now(),
+    dur,
+    src: { ...m.src }, dst: { ...m.dst },
+    side: m.side, king: m.king,
+    captured: m.captured || null,
+    winner: m.winner || null, reason: m.reason || null,
+    splashed: false,
+  };
+  // the renderer finishes the move on the frame it lands, but a timer backs it
+  // up: if frames are throttled the turn must still hand over
+  clearTimeout(S.animTimer);
+  S.animTimer = setTimeout(finishAnim, dur + 40);
+}
+
+function finishAnim() {
+  clearTimeout(S.animTimer);
+  const a = S.anim;
+  S.anim = null;
+  if (!a) return;                // already resolved by whichever fired first
+  if (a.captured && !a.splashed) {
+    const [dx, dy] = sq2px(a.dst.x, a.dst.y);
+    a.splashed = true;
+    spawnSplash(dx, dy, a.captured.side, a.captured.king);
+    Audio_.play("capture");
+    buzz([16, 26, 22]);
+  }
+  if (a.winner) {
+    const [px, py] = sq2px(a.dst.x, a.dst.y);
+    S.fx.push({ kind: "victory", t0: performance.now(), dur: 2200, px, py });
+    Audio_.play("win");
+    buzz([30, 40, 30, 40, 90]);
+    S.screen = "handoff";
+    setTimeout(() => {
+      if (S.screen === "handoff") showVictory(a.winner, a.reason);   // undo may have rewound it
+    }, RM ? 10 : (a.captured ? 1050 : 700));
+    return;
+  }
+  // let the ink settle before handing the phone over, so the move is actually seen
+  const hold = RM ? 0 : (a.captured ? 820 : 170);
+  if (!hold) { nextTurn(); return; }
+  S.screen = "handoff";
+  setTimeout(() => { if (S.screen === "handoff") { S.screen = "play"; nextTurn(); } }, hold);
+}
+
+function nextTurn() {
+  // Same device: no announcement between turns — whose move it is is obvious
+  // from the board itself. The mat simply turns to face the player to move.
+  if (S.mode === "pass") {
+    S.viewSide = S.board.turn;
+    flashBoard();
+  }
+  renderAll();
+  // Online is the one case worth announcing: the other player is elsewhere.
+  if (isOnline() && S.board.turn === S.net.side) showBanner();
+}
+
+function doDiscard(cardId) {
+  if (isOnline()) {
+    if (S.board.turn !== S.net.side || S.net.pending) { Audio_.play("deny"); return; }
+    S.net.pending = true;
+    S.selCard = null;
+    S.selSrc = null;
+    Audio_.play("card");
+    renderChrome();
+    Net.sendDiscard(cardId).catch((err) => {
+      S.net.pending = false;
+      Audio_.play("deny");
+      toast(netError(err));
+      renderAll();
+    });
+    return;
+  }
+  const res = applyDiscard(S.board, cardId);
+  if (!res) { Audio_.play("deny"); return; }
+  pushHistory();
+  S.board = res.board;
+  S.turns += 1;
+  S.selCard = null;
+  S.selSrc = null;
+  S.lastMove = null;
+  Audio_.play("card");
+  toast(L.discarded);
+  nextTurn();
+}
+
+function undo() {
+  // The opponent has already seen the move; taking it back unilaterally is not
+  // ours to do.
+  if (isOnline()) { toast(L.noUndoOnline); Audio_.play("deny"); return; }
+  if (!S.history.length) { toast(L.nothingToUndo); Audio_.play("deny"); return; }
+  clearTimeout(S.animTimer);
+  S.anim = null;                 // rewinding cancels a move still in flight
+  const h = S.history.pop();
+  S.board = h.board;
+  S.lastMove = h.lastMove;
+  S.turns = h.turns;
+  S.captures = h.captures;
+  S.selCard = null;
+  S.selSrc = null;
+  S.drag = null;
+  S.fx = [];
+  if (S.mode === "pass") S.viewSide = S.board.turn;
+  hide("#over");
+  S.screen = "play";
+  renderAll();
+  Audio_.play("tap");
+}
+
+/* ==========================================================================
+   14. Board input — tap to tap, or drag and drop
+   ========================================================================== */
+
+function localPt(ev) {
+  const r = B.cv.getBoundingClientRect();
+  return [ev.clientX - r.left, ev.clientY - r.top];
+}
+
+/**
+ * Who may touch the mat right now. In side-by-side both players share it, so
+ * only the piece owner is gated; online you must own the turn, the seat, and
+ * have no move already in flight.
+ */
+const canAct = () => {
+  if (S.screen !== "play" || S.anim || !S.board) return false;
+  if (isOnline()) {
+    return S.board.turn === S.net.side && !S.net.pending &&
+      S.net.opponent && S.net.link === "live";
+  }
+  return S.mode === "side" ? true : S.viewSide === S.board.turn;
+};
+
+/**
+ * Every square a piece can reach, and which cards allow each one.
+ * With no card chosen this is the union of both cards — pick the piece first,
+ * see everything it can do, and the card follows from where you send it.
+ */
+function movesFrom(b, src, onlyCard) {
+  const cards = onlyCard != null ? [onlyCard] : handOf(b, b.turn);
+  const seen = new Map();
+  for (const c of cards) {
+    for (const t of targetsFor(b, src, c)) {
+      const k = t.x + "," + t.y;
+      if (!seen.has(k)) seen.set(k, { pt: t, cards: [c] });
+      else seen.get(k).cards.push(c);
+    }
+  }
+  return [...seen.values()];
+}
+
+/** Squares of pieces that have at least one move, honouring a chosen card. */
+function movablePieces(b, onlyCard) {
+  return piecesOf(b, b.turn)
+    .filter((it) => movesFrom(b, it.p, onlyCard).length > 0)
+    .map((it) => it.p);
+}
+
+/** Send a piece to a square, spending whichever card allows it. */
+function resolveMove(src, hit) {
+  // A chosen card always wins; otherwise either card will do, so take the first.
+  const card = (S.selCard != null && hit.cards.includes(S.selCard))
+    ? S.selCard : hit.cards[0];
+  commitMove(card, src, hit.pt);
+}
+
+function onBoardDown(ev) {
+  if (!canAct()) return;
+  const [px, py] = localPt(ev);
+  const sq = px2sq(px, py);
+  if (!sq) return;
+  const b = S.board;
+  const p = pieceAt(b, sq);
+
+  // tapping a reachable square sends the selected piece there
+  if (S.selSrc && !(p && p.side === b.turn)) {
+    const hit = movesFrom(b, S.selSrc, S.selCard).find((t) => same(t.pt, sq));
+    if (hit) { resolveMove(S.selSrc, hit); return; }
+  }
+
+  if (p && p.side === b.turn) {
+    const targets = movesFrom(b, sq, S.selCard);
+    if (!targets.length) {
+      Audio_.play("deny");
+      toast(canMove(b) ? (S.selCard != null ? L.cardCannot : L.pieceStuck) : L.noMoves);
+      return;
+    }
+    S.selSrc = { ...sq };
+    S.drag = {
+      src: { ...sq }, x: px, y: py, piece: p,
+      seed: sq.x * 7 + sq.y * 31 + (p.side === "red" ? 100 : 500) + (p.king ? 3 : 0),
+      targets, moved: false, pointerId: ev.pointerId,
+    };
+    B.cv.setPointerCapture(ev.pointerId);
+    Audio_.play("tap");
+    buzz(8);
+    renderChrome();
+    return;
+  }
+
+  // tapping empty space clears the piece selection
+  if (S.selSrc) { S.selSrc = null; renderChrome(); }
+}
+
+function onBoardMove(ev) {
+  const d = S.drag;
+  if (!d || d.pointerId !== ev.pointerId) return;
+  const [px, py] = localPt(ev);
+  if (Math.hypot(px - d.x, py - d.y) > 3) d.moved = true;
+  d.x = px; d.y = py;
+}
+
+function onBoardUp(ev) {
+  const d = S.drag;
+  if (!d || d.pointerId !== ev.pointerId) return;
+  const [px, py] = localPt(ev);
+  const sq = px2sq(px, py);
+  S.drag = null;
+  try { B.cv.releasePointerCapture(ev.pointerId); } catch (e) { /* already gone */ }
+
+  // a tap, not a drag: leave the piece selected so its moves stay on screen
+  if (!d.moved) { renderChrome(); return; }
+
+  const hit = sq && d.targets.find((t) => same(t.pt, sq));
+  if (!hit) {                       // dropped off a legal square — snap back
+    S.selSrc = null;
+    Audio_.play("deny");
+    renderChrome();
+    return;
+  }
+  resolveMove(d.src, hit);
+}
+
+/* ==========================================================================
+   15. Card DOM
+   ========================================================================== */
+
+/** The 5×5 move diagram: a tapered ink stroke to each reachable cell. */
+function diagramSvg(cardId, side) {
+  const card = CARDS[cardId];
+  const tint = side === "red" ? SIDE_INK.red : side === "blue" ? SIDE_INK.blue : null;
+  const dot = tint ? tint.core : C.goldDk;
+  const bleed = tint ? tint.bleed : C.gold;
+  let s = '<svg class="card-diagram" viewBox="0 0 100 100" aria-hidden="true">';
+  // grid
+  s += '<g stroke="rgba(37,26,17,.28)" stroke-width="0.7" fill="none">';
+  for (let i = 0; i <= 5; i++) {
+    s += '<line x1="' + i * 20 + '" y1="0" x2="' + i * 20 + '" y2="100"/>';
+    s += '<line x1="0" y1="' + i * 20 + '" x2="100" y2="' + i * 20 + '"/>';
+  }
+  s += "</g>";
+  s += '<rect x="0.4" y="0.4" width="99.2" height="99.2" fill="none" stroke="rgba(37,26,17,.5)" stroke-width="1.1"/>';
+  // origin cell
+  s += '<rect x="40" y="40" width="20" height="20" fill="rgba(37,26,17,.1)"/>';
+  // strokes out to each destination
+  for (const [dx, dy] of card.m) {
+    const tx = 50 + dx * 20, ty = 50 + dy * 20;
+    s += '<line x1="50" y1="50" x2="' + tx + '" y2="' + ty + '" stroke="' + bleed +
+         '" stroke-width="5.5" stroke-linecap="round" opacity=".16"/>';
+    s += '<line x1="50" y1="50" x2="' + tx + '" y2="' + ty + '" stroke="' + dot +
+         '" stroke-width="2" stroke-linecap="round" opacity=".42"/>';
+  }
+  // destination blobs
+  for (const [dx, dy] of card.m) {
+    const tx = 50 + dx * 20, ty = 50 + dy * 20;
+    s += '<circle cx="' + tx + '" cy="' + ty + '" r="9.5" fill="' + bleed + '" opacity=".2"/>';
+    s += '<circle cx="' + tx + '" cy="' + ty + '" r="6.4" fill="' + dot + '"/>';
+    s += '<circle cx="' + (tx - 1.4) + '" cy="' + (ty - 1.6) + '" r="1.7" fill="rgba(255,250,235,.4)"/>';
+  }
+  // the piece's own square
+  s += '<circle cx="50" cy="50" r="5.4" fill="none" stroke="' + C.gold + '" stroke-width="1.6" opacity=".9"/>';
+  s += '<circle cx="50" cy="50" r="2" fill="' + C.ink + '" opacity=".65"/>';
+  s += "</svg>";
+  return s;
+}
+
+/**
+ * One card. `opt`: { size, playable, selected, dim, mirrored, spare, discard }
+ */
+function cardEl(cardId, side, opt) {
+  const o = opt || {};
+  const c = CARDS[cardId];
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "card";
+  if (o.spare) el.classList.add("spare");
+  else if (o.top) el.classList.add("top");
+  if (o.playable) el.classList.add("playable");
+  if (o.selected) el.classList.add("sel");
+  if (o.dim) el.classList.add("dim");
+  if (o.discard) el.classList.add("must-discard");
+  const h = o.size || 100;
+  el.style.setProperty("--h", h + "px");
+  if (o.size) { el.style.height = h + "px"; el.style.width = Math.round(h * 1.52) + "px"; }
+  el.dataset.card = String(cardId);
+  const name = S.lang === "fi" ? c.fi : c.en;
+  el.setAttribute("aria-label", name + " — " + DIR[c.d]);
+  el.innerHTML =
+    '<span class="card-left">' +
+      '<span class="card-kanji' + (c.k.length > 1 ? " two" : "") + '">' + c.k + "</span>" +
+      '<span class="card-rule"></span>' +
+      '<span class="card-name">' + name + "</span>" +
+    "</span>" +
+    diagramSvg(cardId, o.spare ? null : side) +
+    (o.spare ? '<span class="spare-tag">' + L.aside + "</span>"
+             : '<span class="card-seal">' + DIR[c.d] + "</span>");
+  return el;
+}
+
+/* ==========================================================================
+   16. Layout sizing and rendering
+   ========================================================================== */
+
+const CARD_RATIO = 1.62;
+const TOP_SCALE = 0.7;
+const SPARE_SCALE = 0.56;
+
+const MIN_BOARD = 110;
+
+function sizeCards() {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  // Both hands are now the same size — the opponent's cards carry the same
+  // tactical weight as your own, so they get the same reading room.
+  const byWidth = (vw - 23) / (CARD_RATIO * 2);
+  // ...and two full rows plus a usable mat must fit down the screen, or a short
+  // viewport (a phone turned sideways) pushes the player's own hand off it
+  const byHeight = (vh - stageChrome() - MIN_BOARD) / 2;
+  const h = Math.floor(Math.max(44, Math.min(byWidth, byHeight, clamp(vh * 0.125, 74, 112))));
+  cardH = h;
+  const root = document.documentElement.style;
+  root.setProperty("--cardH", h + "px");
+  root.setProperty("--topH", h + "px");
+  document.querySelectorAll(".card").forEach((el) => {
+    if (el.classList.contains("spare")) return;
+    el.style.setProperty("--h", h + "px");
+  });
+}
+
+/** Each school's surviving students, shown beside their end of the mat. */
+function renderFallen() {
+  const b = S.board;
+  if (!b) return;
+  const build = (el, side) => {
+    const alive = pawnsOf(b, side).filter(Boolean).length;
+    let html = '<span class="tag">' + L.students + "</span>";
+    for (let i = 0; i < 4; i++) {
+      html += '<span class="slot' + (i < alive ? " alive " + side : "") + '"></span>';
+    }
+    el.innerHTML = html;
+  };
+  build($("#fallenTop"), topSide());
+  build($("#fallenBot"), S.viewSide);
+  // in side-by-side the far strip belongs to the far player, so turn it round
+  $("#fallenTop").style.transform = S.mode === "side" ? "rotate(180deg)" : "";
+}
+
+/** Which school's cards sit on top / bottom of the screen. */
+const topSide = () => other(S.viewSide);
+
+function renderHands(flip) {
+  const b = S.board;
+  if (!b) return;
+  const mustDiscard = !canMove(b);
+  const acting = b.turn;
+
+  // ----- top row: opponent's two cards plus the sideways spare -----
+  const top = $("#topHand");
+  const prevRects = flip ? captureRects() : null;
+  top.innerHTML = "";
+  const tSide = topSide();
+  const topPlayable = S.mode === "side" && tSide === acting;
+  for (const cid of handOf(b, tSide)) {
+    const el = cardEl(cid, tSide, {
+      top: true,
+      playable: topPlayable,
+      selected: topPlayable && S.selCard === cid,
+      dim: !topPlayable,
+      discard: topPlayable && mustDiscard,
+    });
+    el.dataset.owner = tSide;
+    top.appendChild(el);
+  }
+  // The reserve card lives in the turn bar, so both hands get equal width.
+  // It flows to whoever is about to move, and the arrow says so.
+  const slot = $("#spareSlot");
+  const oldSpareEl = slot.querySelector(".card");
+  if (oldSpareEl) oldSpareEl.remove();
+  const spare = cardEl(b.spare, null, { spare: true });
+  spare.dataset.slot = "spare";
+  spare.disabled = true;
+  slot.appendChild(spare);
+  $("#spareArrow").classList.toggle("up", S.viewSide !== acting);
+
+  $("#topCol").classList.toggle("mirrored", S.mode === "side");
+  top.classList.toggle("active", topPlayable);
+
+  // ----- bottom row: the near school -----
+  const bot = $("#botHand");
+  bot.innerHTML = "";
+  const bSide = S.viewSide;
+  const botPlayable = bSide === acting;
+  for (const cid of handOf(b, bSide)) {
+    const el = cardEl(cid, bSide, {
+      playable: botPlayable,
+      selected: botPlayable && S.selCard === cid,
+      dim: !botPlayable,
+      discard: botPlayable && mustDiscard,
+    });
+    el.dataset.owner = bSide;
+    bot.appendChild(el);
+  }
+  bot.classList.toggle("active", botPlayable);
+
+  sizeCards();
+  renderFallen();
+  if (flip && prevRects) flipCards(prevRects, flip);
+}
+
+/** Record card positions so the swap with the spare can be animated. */
+function captureRects() {
+  const map = new Map();
+  document.querySelectorAll("#topHand .card, #botHand .card, #spareSlot .card").forEach((el) => {
+    const key = el.dataset.slot === "spare" ? "spare" : (el.dataset.owner + ":" + el.dataset.card);
+    map.set(key, el.getBoundingClientRect());
+  });
+  return map;
+}
+
+/** FLIP: the played card slides to the spare slot, the spare slides into hand. */
+function flipCards(prev, info) {
+  if (RM) return;
+  const spareEl = $('#spareSlot .card[data-slot="spare"]');
+  const played = prev.get(info.side + ":" + info.playedCard);
+  if (spareEl && played) {
+    const now = spareEl.getBoundingClientRect();
+    animateFrom(spareEl, played, now, 460);
+  }
+  const arrived = document.querySelector('.card[data-card="' + info.oldSpare + '"][data-owner="' + info.side + '"]');
+  const from = prev.get("spare");
+  if (arrived && from) {
+    animateFrom(arrived, from, arrived.getBoundingClientRect(), 460);
+  }
+}
+
+function animateFrom(el, from, to, dur) {
+  const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+  const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+  const sc = from.height / Math.max(1, to.height);
+  const spare = el.classList.contains("spare");
+  const base = spare ? " rotate(-3deg)" : "";
+  el.animate(
+    [
+      { transform: "translate(" + dx + "px," + dy + "px) scale(" + sc + ")", opacity: 0.55 },
+      { transform: "translate(0,0) scale(1)" + base, opacity: 1 },
+    ],
+    { duration: dur, easing: "cubic-bezier(.2,.9,.25,1)", fill: "none" }
+  );
+}
+
+function renderChrome() {
+  const b = S.board;
+  if (!b) return;
+  const turn = b.turn;
+  const chip = $("#turnChip");
+  chip.className = "turn-chip " + turn;
+  $("#turnGlyph").textContent = sideGlyph(turn);
+  $("#turnWho").textContent = sideName(turn);   // short: the bar is shared with the reserve card
+
+  const mustDiscard = !canMove(b);
+  let hint;
+  if (mustDiscard) hint = L.noMoves;
+  else if (!S.selSrc) hint = S.selCard == null ? L.pickPiece : L.pickPieceCard;
+  else hint = L.pickSquare;
+
+  const near = $("#botNote"), far = $("#topNote");
+  const nearActive = S.viewSide === turn;
+  if (isOnline()) {
+    // one seat, one hint line: say plainly whether the board is waiting on you
+    if (!S.net.opponent) near.textContent = L.oppLeftWait;
+    else if (S.net.link !== "live") near.textContent = L.reconnecting;
+    else if (S.net.pending) near.textContent = L.sending;
+    else near.textContent = nearActive ? hint : L.oppMove;
+    near.classList.toggle("warn", (nearActive && mustDiscard) || !S.net.opponent || S.net.link !== "live");
+  } else {
+    near.textContent = nearActive ? hint : L.waiting;
+    near.classList.toggle("warn", nearActive && mustDiscard);
+  }
+  if (S.mode === "side") {
+    far.textContent = nearActive ? L.waiting : hint;
+    far.classList.toggle("warn", !nearActive && mustDiscard);
+  } else {
+    far.textContent = "";
+    far.classList.remove("warn");
+  }
+
+  $("#botHand").style.opacity = nearActive || S.mode === "pass" ? "1" : ".97";
+  $("#btnUndo").disabled = isOnline() || !S.history.length;
+  $("#btnUndo").textContent = L.undo;
+  $("#btnFlip").textContent = L.flip;
+  $("#btnFlip").style.display = S.mode === "side" ? "" : "none";
+  $("#btnSound").classList.toggle("off", !S.sound);
+  renderNetChip();
+}
+
+/** Room code plus a link-health dot in the turn bar. */
+function renderNetChip() {
+  const chip = $("#netChip");
+  if (!isOnline()) { chip.hidden = true; return; }
+  chip.hidden = false;
+  $("#netCode").textContent = Net.code || "----";
+  chip.className = "net-chip" +
+    (S.net.link !== "live" ? " down" : !S.net.opponent ? " warn" : "");
+}
+
+function renderAll() {
+  sizeCards();          // before layoutBoard: the mat gets whatever is left over
+  layoutBoard();
+  renderHands(null);
+  renderChrome();
+}
+
+/* ==========================================================================
+   17. Card taps
+   ========================================================================== */
+
+function onCardClick(ev) {
+  const el = ev.target.closest(".card");
+  if (!el || !el.classList.contains("playable")) return;
+  if (S.anim || S.screen !== "play") return;
+  const cid = Number(el.dataset.card);
+  const owner = el.dataset.owner;
+  const b = S.board;
+  if (owner !== b.turn) return;
+  if (!canAct()) return;
+
+  if (!canMove(b)) { doDiscard(cid); return; }
+
+  S.selCard = S.selCard === cid ? null : cid;
+  // keep the piece only if it can still move with the newly chosen card
+  if (S.selSrc && (S.selCard == null || !targetsFor(b, S.selSrc, S.selCard).length)) S.selSrc = null;
+  Audio_.play("tap");
+  buzz(8);
+  renderHands(null);
+  renderChrome();
+}
+
+/* ==========================================================================
+   18. Screens
+   ========================================================================== */
+
+function show(sel) { $(sel).classList.add("on"); }
+function hide(sel) { $(sel).classList.remove("on"); }
+
+let toastT = null;
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove("on"), 1700);
+}
+
+/** Brief fade as the mat turns round, instead of a modal hand-over screen. */
+function flashBoard() {
+  if (RM || !B.cv) return;
+  B.cv.classList.remove("turning");
+  void B.cv.offsetWidth;
+  B.cv.classList.add("turning");
+}
+
+function showBanner() {
+  const el = $("#banner");
+  el.querySelector(".b-in").textContent = schoolName(S.board.turn);
+  el.classList.remove("go");
+  void el.offsetWidth;
+  el.classList.add("go");
+}
+
+function showVictory(winner, reason) {
+  $("#oWho").textContent = schoolName(winner) + " " + L.wins;
+  $("#oReason").textContent = reason === "temple" ? L.byTemple : L.byCapture;
+  $("#oTurns").textContent = String(S.turns);
+  $("#oCaps").textContent = String(S.captures);
+  $("#oTurnsK").textContent = L.turnsK;
+  $("#oCapsK").textContent = L.capsK;
+  $("#btnAgain").textContent = L.again;
+  $("#btnAgain").disabled = false;
+  $("#btnToMenu").textContent = L.toMenu;
+  const hanko = $("#oHanko");
+  hanko.style.background = winner === "red"
+    ? "radial-gradient(120% 120% at 30% 20%, #C8402C, #9E2B1E 55%, #6E1A12)"
+    : "radial-gradient(120% 120% at 30% 20%, #4A729C, #26405E 55%, #16273A)";
+  S.screen = "over";
+  show("#over");
+}
+
+/** Local game (pass-and-play or side-by-side). Online starts from the server. */
+function startGame() {
+  clearTimeout(S.animTimer);
+  if (S.net.on) { Net.leave(); }
+  resetNet();
+  S.board = newBoard(deckIds());
+  S.history = [];
+  S.selCard = null;
+  S.selSrc = null;
+  S.drag = null;
+  S.lastMove = null;
+  S.fx = [];
+  S.anim = null;
+  S.turns = 0;
+  S.captures = 0;
+  S.viewSide = S.mode === "pass" ? S.board.turn : "red";
+  hide("#menu");
+  hide("#over");
+  S.screen = "play";
+  $("#stage").classList.add("live");
+  // render now rather than on the next frame — rAF can be throttled, and the
+  // board must never be left empty waiting for a paint
+  layoutBoard();
+  renderAll();
+  requestAnimationFrame(() => { layoutBoard(); renderFallen(); });
+}
+
+/* ==========================================================================
+   18b. Online session
+
+   The server owns the board. This side sends intents, then renders whatever
+   authoritative state comes back — it never advances the game on its own.
+   ========================================================================== */
+
+const NET_ERRORS = {
+  "no-such-room": "noRoom",
+  "room-full": "roomFull",
+  "bad-code": "badCode",
+  "server-busy": "serverBusy",
+  "not-your-turn": "oppMove",
+  "opponent-away": "oppLeftWait",
+  "no-server": "onlineOff",
+  lib: "linkLost",
+  offline: "linkLost",
+  unreachable: "linkLost",
+  timeout: "linkLost",
+};
+
+function netError(err) {
+  const key = NET_ERRORS[err && err.message];
+  return key ? L[key] : L.refused;
+}
+
+function resetNet() {
+  S.net.on = false;
+  S.net.side = null;
+  S.net.opponent = false;
+  S.net.pending = false;
+  S.net.synced = false;
+  S.net.link = "live";
+}
+
+/** Take the online seat and show the mat from this player's end. */
+function enterOnlineBoard() {
+  hide("#lobby");
+  hide("#menu");
+  hide("#over");
+  S.screen = "play";
+  S.viewSide = S.net.side;     // Blue therefore sees the mat turned 180°
+  S.selCard = null;
+  S.selSrc = null;
+  S.drag = null;
+  S.fx = [];
+  $("#stage").classList.add("live");
+  layoutBoard();
+  renderAll();
+  showBanner();
+}
+
+/** The one place authoritative state lands. */
+function applyServerState(p) {
+  if (!p || !p.board || !S.net.on) return;
+
+  const first = !S.net.synced;
+  const prevTurns = S.turns;
+  const oldSpare = S.board ? S.board.spare : null;
+  const wasOver = S.screen === "over";
+
+  S.net.synced = true;
+  S.net.pending = false;
+  S.net.opponent = !!(p.players && p.players[other(S.net.side)]);
+
+  S.board = p.board;
+  S.turns = p.turns || 0;
+  S.captures = p.captures || 0;
+  S.history = [];              // no local rewind in a shared game
+
+  // Both seats filled: take the board. The host comes from the lobby, someone
+  // arriving on an invite link comes straight from the menu.
+  if (S.net.opponent && (S.screen === "lobby" || S.screen === "menu")) enterOnlineBoard();
+
+  // the server reset the board (both players asked for a rematch)
+  if (wasOver && !p.winner) {
+    hide("#over");
+    S.fx = [];
+    S.lastMove = null;
+    S.anim = null;
+    enterOnlineBoard();
+    return;
+  }
+
+  const lm = p.lastMove;
+  const advanced = S.turns > prevTurns;
+
+  if (!first && advanced && lm && lm.src && lm.dst) {
+    startMoveAnim(lm);
+    Audio_.play("card");
+    if (!lm.captured) setTimeout(() => Audio_.play("place"), RM ? 0 : 260);
+    renderHands({ flipFrom: { side: lm.side, oldSpare, playedCard: lm.card } });
+    renderChrome();
+    return;                    // finishAnim carries on into the next turn
+  }
+
+  if (!first && advanced && lm && lm.discarded != null) toast(L.discarded);
+
+  S.lastMove = lm && lm.src ? { src: lm.src, dst: lm.dst, side: lm.side } : null;
+  renderAll();
+
+  // joined or reloaded into a game that is already decided
+  if (p.winner && S.screen !== "over") showVictory(p.winner, p.reason);
+}
+
+function showLobby(code) {
+  $("#lbEyebrow").textContent = L.roomOpen;
+  $("#lbCode").textContent = code;
+  $("#lbLede").textContent = L.shareCode;
+  $("#btnCopy").textContent = L.copyLink;
+  $("#lbStatus").textContent = L.waitOpponent;
+  $("#btnLeaveLobby").textContent = L.cancel;
+  S.screen = "lobby";
+  show("#lobby");
+}
+
+function setNetNote(msg, isError) {
+  const el = $("#netNote");
+  el.textContent = msg || "";
+  el.classList.toggle("err", !!isError);
+}
+
+/** Free Render instances sleep; warn once the wait gets long enough to notice. */
+function withWakeNotice(promise) {
+  const t = setTimeout(() => setNetNote(L.waking, false), 2500);
+  return promise.finally(() => clearTimeout(t));
+}
+
+/** The deck rules to hand the server, so an online game matches the local one. */
+function onlineDeckSpec() {
+  return {
+    base: !!S.sets.base,
+    sensei: !!S.sets.sensei,
+    custom: !!S.sets.custom && P.custom.length > 0,
+    picked: P.picked.slice(),
+    blocked: P.blocked.slice(),
+  };
+}
+
+/** Render the live list of rooms waiting for an opponent. */
+function renderRoomList(list) {
+  const el = $("#roomList");
+  el.innerHTML = "";
+  if (!Net.available) {
+    el.innerHTML = '<p class="room-empty">' + L.onlineOff + "</p>";
+    return;
+  }
+  if (!list || !list.length) {
+    el.innerHTML = '<p class="room-empty">' + (S.net.browsed ? L.noRooms : L.lookingRooms) + "</p>";
+    return;
+  }
+  for (const r of list) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "room";
+    const bits = [];
+    if (r.sets && r.sets.sensei) bits.push(L.setSensei);
+    if (r.custom) bits.push(L.filCustom + " ×" + r.custom);
+    if (!bits.length) bits.push(L.setBase);
+    b.innerHTML =
+      '<span class="rseat ' + r.waiting + '">' + sideGlyph(r.waiting) + "</span>" +
+      '<span class="rcode">' + r.code + "</span>" +
+      '<span class="rmeta">' + bits.join(" · ") + "<br>" + agoText(r.age) + "</span>";
+    b.addEventListener("click", () => { Audio_.play("tap"); onlineJoin(r.code); });
+    el.appendChild(b);
+  }
+}
+
+function agoText(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return L.agoSec.replace("%n", String(s));
+  return L.agoMin.replace("%n", String(Math.round(s / 60)));
+}
+
+/** Watch the open-room list while the online menu is showing. */
+function startBrowsing() {
+  if (!Net.available) { renderRoomList([]); return; }
+  S.net.browsed = false;
+  renderRoomList([]);
+  Net.browse(true)
+    .then(() => { S.net.browsed = true; })
+    .catch(() => { S.net.browsed = true; renderRoomList([]); setNetNote(L.linkLost, true); });
+}
+
+function stopBrowsing() { Net.browse(false); }
+
+function onlineCreate() {
+  if (!Net.available) return setNetNote(L.onlineOff, true);
+  S.mode = "online";
+  resetNet();
+  setNetNote(L.connecting, false);
+  withWakeNotice(Net.create(onlineDeckSpec(), P.custom))
+    .then((res) => {
+      S.net.on = true;
+      S.net.side = res.side;
+      S.net.synced = false;
+      S.board = res.state.board;
+      S.viewSide = res.side;
+      setNetNote("", false);
+      stopBrowsing();
+      applyServerState(res.state);
+      if (!S.net.opponent) showLobby(res.code);
+    })
+    .catch((err) => { resetNet(); setNetNote(netError(err), true); });
+}
+
+function onlineJoin(code) {
+  if (!Net.available) return setNetNote(L.onlineOff, true);
+  S.mode = "online";
+  resetNet();
+  setNetNote(L.joining, false);
+  withWakeNotice(Net.join(code))
+    .then((res) => {
+      S.net.on = true;
+      S.net.side = res.side;
+      S.net.synced = false;
+      S.board = res.state.board;
+      S.viewSide = res.side;
+      setNetNote("", false);
+      stopBrowsing();
+      applyServerState(res.state);
+      if (!S.net.opponent) showLobby(res.code);
+    })
+    .catch((err) => { resetNet(); setNetNote(netError(err), true); });
+}
+
+function leaveOnline() {
+  Net.leave();
+  resetNet();
+  hide("#lobby");
+  clearTimeout(S.animTimer);
+  S.anim = null;
+  S.screen = "menu";
+  $("#stage").classList.remove("live");
+  show("#menu");
+  setNetNote("", false);
+  renderNetChip();
+}
+
+function bindNet() {
+  Net.hooks.state = applyServerState;
+  Net.hooks.rooms = (list) => { S.net.browsed = true; renderRoomList(list); };
+
+  Net.hooks.opponent = (kind, info) => {
+    if (!S.net.on) return;
+    if (kind === "joined") {
+      S.net.opponent = true;
+      toast(info && info.rejoined ? L.oppBack : L.oppJoined);
+      Audio_.play("card");
+    } else {
+      S.net.opponent = false;
+      toast(info && info.permanent ? L.oppLeft : L.oppLeftWait);
+    }
+    if (S.screen === "play") renderChrome();
+  };
+
+  Net.hooks.status = (status) => {
+    S.net.link = (status === "live" || status === "connected" || status === "waiting")
+      ? "live"
+      : (status === "offline" || status === "lost") ? "offline" : "reconnecting";
+    if (S.net.on && S.screen === "play") renderChrome();
+    if (S.screen === "lobby") {
+      $("#lbStatus").textContent = S.net.link === "live" ? L.waitOpponent : L.reconnecting;
+    }
+  };
+}
+
+/* ==========================================================================
+   18c. Collection — card library, card maker, appearance
+   ========================================================================== */
+
+const SWATCHES = [
+  "#9E2B1E", "#B0301F", "#C4622A", "#8A6A1E",
+  "#4E7A3E", "#26405E", "#3C6E8F", "#5B4A8A",
+  "#6E3A5A", "#3A3A3A",
+];
+
+let colTab = "cards";
+let cardFilter = "all";
+const maker = { moves: new Set(), name: "", glyph: "" };
+
+const allLibraryIds = () => SET_BASE.concat(SET_SENSEI, P.custom.map((c) => c.id).filter((id) => CARDS[id]));
+
+function cardState(id) {
+  if (P.picked.includes(id)) return "picked";
+  if (P.blocked.includes(id)) return "blocked";
+  return "free";
+}
+
+/** Cycle a card: free → picked → blocked → free. */
+function cycleCardState(id) {
+  const st = cardState(id);
+  P.picked = P.picked.filter((x) => x !== id);
+  P.blocked = P.blocked.filter((x) => x !== id);
+  if (st === "free") P.picked.push(id);
+  else if (st === "picked") P.blocked.push(id);
+  savePrefs();
+}
+
+function toggleFav(id) {
+  P.fav = P.fav.includes(id) ? P.fav.filter((x) => x !== id) : P.fav.concat(id);
+  savePrefs();
+}
+
+function filteredIds() {
+  const ids = allLibraryIds();
+  switch (cardFilter) {
+    case "fav": return ids.filter((id) => P.fav.includes(id));
+    case "base": return ids.filter((id) => SET_BASE.includes(id));
+    case "sensei": return ids.filter((id) => SET_SENSEI.includes(id));
+    case "custom": return ids.filter((id) => Onitama.isCustom(id));
+    case "picked": return ids.filter((id) => cardState(id) === "picked");
+    case "blocked": return ids.filter((id) => cardState(id) === "blocked");
+    default: return ids;
+  }
+}
+
+function libraryEntry(id) {
+  const wrap = document.createElement("div");
+  wrap.className = "lib";
+  wrap.dataset.state = cardState(id);
+
+  const card = cardEl(id, null, { playable: true });
+  card.style.setProperty("--h", "74px");
+  card.addEventListener("click", () => {
+    cycleCardState(id);
+    Audio_.play("tap");
+    renderLibrary();
+  });
+  wrap.appendChild(card);
+
+  const tag = document.createElement("span");
+  tag.className = "state-tag";
+  tag.textContent = cardState(id) === "picked" ? L.tagPicked : L.tagBlocked;
+  wrap.appendChild(tag);
+
+  const heart = document.createElement("button");
+  heart.type = "button";
+  heart.className = "heart" + (P.fav.includes(id) ? " on" : "");
+  heart.textContent = P.fav.includes(id) ? "♥" : "♡";
+  heart.setAttribute("aria-label", CARDS[id].fi + " — " + L.favourite);
+  heart.setAttribute("aria-pressed", String(P.fav.includes(id)));
+  heart.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleFav(id);
+    Audio_.play("tap");
+    renderLibrary();
+  });
+  wrap.appendChild(heart);
+  return wrap;
+}
+
+function renderLibrary() {
+  const filters = [
+    ["all", L.filAll], ["fav", "♥ " + L.filFav], ["base", L.setBase],
+    ["sensei", L.setSensei], ["custom", L.filCustom],
+    ["picked", L.filPicked], ["blocked", L.filBlocked],
+  ];
+  const fr = $("#cardFilters");
+  fr.innerHTML = "";
+  for (const [id, label] of filters) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.setAttribute("aria-pressed", String(cardFilter === id));
+    b.textContent = label;
+    b.addEventListener("click", () => { cardFilter = id; Audio_.play("tap"); renderLibrary(); });
+    fr.appendChild(b);
+  }
+
+  const grid = $("#cardGrid");
+  grid.innerHTML = "";
+  const ids = filteredIds();
+  for (const id of ids) grid.appendChild(libraryEntry(id));
+  if (!ids.length) {
+    const p = document.createElement("p");
+    p.className = "legend";
+    p.textContent = L.filterEmpty;
+    grid.appendChild(p);
+  }
+
+  $("#cardLegend").textContent = L.libLegend;
+  $("#btnClearPicks").textContent = L.clearPicks;
+  const deck = deckIds();
+  $("#deckNote").textContent = P.picked.length >= 5
+    ? L.deckExact.replace("%n", String(P.picked.length))
+    : L.deckPool.replace("%n", String(deck.length));
+  $("#deckNote").classList.toggle("err", deck.length < 5);
+}
+
+/* --- card maker ----------------------------------------------------------- */
+
+function drawMakerGrid() {
+  const cv = $("#makerGrid");
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const s = 260;
+  cv.width = s * dpr; cv.height = s * dpr;
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, s, s);
+  const cell = s / 5;
+
+  x.strokeStyle = "rgba(37,26,17,.28)";
+  x.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    x.beginPath(); x.moveTo(i * cell, 0); x.lineTo(i * cell, s); x.stroke();
+    x.beginPath(); x.moveTo(0, i * cell); x.lineTo(s, i * cell); x.stroke();
+  }
+
+  // the piece's own square
+  x.fillStyle = "rgba(37,26,17,.1)";
+  x.fillRect(2 * cell, 2 * cell, cell, cell);
+  x.strokeStyle = C.gold;
+  x.lineWidth = 2;
+  x.beginPath(); x.arc(2.5 * cell, 2.5 * cell, cell * 0.22, 0, TAU); x.stroke();
+
+  const ink = SIDE_INK.red;
+  for (const key of maker.moves) {
+    const [dx, dy] = key.split(",").map(Number);
+    const cx = (2.5 + dx) * cell, cy = (2.5 + dy) * cell;
+    x.save();
+    x.globalAlpha = 0.2;
+    x.strokeStyle = ink.bleed;
+    x.lineWidth = cell * 0.28;
+    x.lineCap = "round";
+    x.beginPath(); x.moveTo(2.5 * cell, 2.5 * cell); x.lineTo(cx, cy); x.stroke();
+    x.restore();
+    x.fillStyle = ink.core;
+    inkBlob(x, cx, cy, cell * 0.3, dx * 7 + dy * 13 + 5, 0.28);
+    x.fill();
+  }
+}
+
+function onMakerTap(ev) {
+  const cv = $("#makerGrid");
+  const r = cv.getBoundingClientRect();
+  const cell = r.width / 5;
+  const dx = Math.floor((ev.clientX - r.left) / cell) - 2;
+  const dy = Math.floor((ev.clientY - r.top) / cell) - 2;
+  if (dx < -2 || dx > 2 || dy < -2 || dy > 2) return;
+  if (dx === 0 && dy === 0) return;              // the piece's own square
+  const key = dx + "," + dy;
+  if (maker.moves.has(key)) maker.moves.delete(key); else maker.moves.add(key);
+  Audio_.play("tap");
+  drawMakerGrid();
+  updateMakerNote();
+}
+
+function updateMakerNote() {
+  const n = maker.moves.size;
+  const el = $("#makerNote");
+  const bad = n < 1 || n > 6;
+  el.textContent = bad ? L.makerRange : L.makerCount.replace("%n", String(n));
+  el.classList.toggle("err", bad);
+  $("#btnSaveCard").disabled = bad;
+}
+
+/** Handedness, inferred from where the moves lean — the same idea as the seal. */
+function inferDirection(moves) {
+  const net = moves.reduce((a, [x]) => a + x, 0);
+  const mirrored = moves.every(([x, y]) => moves.some(([x2, y2]) => x2 === -x && y2 === y));
+  if (mirrored || net === 0) return "B";
+  return net > 0 ? "R" : "L";
+}
+
+function saveCustomCard() {
+  const moves = [...maker.moves].map((k) => k.split(",").map(Number));
+  if (!moves.length || moves.length > 6) return;
+  const name = ($("#makerName").value || "").trim() || L.customDefault;
+  const glyph = ($("#makerGlyph").value || "").trim() || "私";
+  const id = Onitama.CUSTOM_BASE + P.custom.reduce((mx, c) => Math.max(mx, c.id - Onitama.CUSTOM_BASE + 1), 0);
+  P.custom.push({ id, fi: name, en: name, k: glyph.slice(0, 2), d: inferDirection(moves), m: moves });
+  savePrefs();
+  Onitama.setCustomCards(P.custom);
+  S.sets.custom = true;                     // a card you just drew should be playable
+  maker.moves.clear();
+  $("#makerName").value = "";
+  $("#makerGlyph").value = "";
+  drawMakerGrid();
+  updateMakerNote();
+  renderCustomList();
+  renderLibrary();
+  renderMenu();
+  Audio_.play("card");
+  toast(L.cardSaved.replace("%s", name));
+}
+
+function renderCustomList() {
+  const grid = $("#customGrid");
+  grid.innerHTML = "";
+  if (!P.custom.length) {
+    const p = document.createElement("p");
+    p.className = "legend";
+    p.textContent = L.noCustom;
+    grid.appendChild(p);
+    return;
+  }
+  for (const c of P.custom) {
+    const wrap = document.createElement("div");
+    wrap.className = "lib";
+    const card = cardEl(c.id, null, {});
+    card.style.setProperty("--h", "74px");
+    wrap.appendChild(card);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "heart on";
+    del.textContent = "✕";
+    del.setAttribute("aria-label", L.deleteCard + " " + c.fi);
+    del.addEventListener("click", () => {
+      P.custom = P.custom.filter((x) => x.id !== c.id);
+      P.picked = P.picked.filter((x) => x !== c.id);
+      P.blocked = P.blocked.filter((x) => x !== c.id);
+      P.fav = P.fav.filter((x) => x !== c.id);
+      savePrefs();
+      Onitama.setCustomCards(P.custom);
+      Audio_.play("tap");
+      renderCustomList();
+      renderLibrary();
+    });
+    wrap.appendChild(del);
+    grid.appendChild(wrap);
+  }
+}
+
+/* --- appearance ----------------------------------------------------------- */
+
+function renderSwatches() {
+  document.querySelectorAll(".swatches").forEach((row) => {
+    const side = row.dataset.side;
+    row.innerHTML = "";
+    for (const hex of SWATCHES) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "swatch";
+      b.style.background = hex;
+      b.setAttribute("aria-label", hex);
+      b.setAttribute("aria-pressed", String(P.colors[side].toLowerCase() === hex.toLowerCase()));
+      b.addEventListener("click", () => setSideColor(side, hex));
+      row.appendChild(b);
+    }
+    // any colour at all, via the platform picker
+    const custom = document.createElement("label");
+    custom.className = "swatch pick";
+    custom.title = L.anyColour;
+    custom.innerHTML = '<span aria-hidden="true">✎</span>';
+    const inp = document.createElement("input");
+    inp.type = "color";
+    inp.value = P.colors[side];
+    inp.addEventListener("input", () => setSideColor(side, inp.value));
+    custom.appendChild(inp);
+    row.appendChild(custom);
+  });
+  drawColorPreview();
+}
+
+function setSideColor(side, hex) {
+  P.colors[side] = hex;
+  savePrefs();
+  applyColors();
+  renderSwatches();
+  if (S.board) renderAll();
+  Audio_.play("tap");
+}
+
+/** Both schools side by side, so a colour can be judged before committing. */
+function drawColorPreview() {
+  const cv = $("#colorPreview");
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const w = 300, h = 120;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, w, h);
+  x.fillStyle = "rgba(255,250,235,.5)";
+  x.fillRect(0, 0, w, h);
+  const now = performance.now();
+  drawWarrior(x, w * 0.24, h * 0.9, h * 0.34, "red", true, 11, now, null);
+  drawWarrior(x, w * 0.42, h * 0.9, h * 0.34, "red", false, 12, now, null);
+  drawWarrior(x, w * 0.62, h * 0.9, h * 0.34, "blue", false, 13, now, null);
+  drawWarrior(x, w * 0.8, h * 0.9, h * 0.34, "blue", true, 14, now, null);
+}
+
+/* --- shell ---------------------------------------------------------------- */
+
+function renderCollection() {
+  const tabs = [["cards", L.tabCards], ["custom", L.tabCustom], ["look", L.tabLook]];
+  const tr = $("#colTabs");
+  tr.innerHTML = "";
+  for (const [id, label] of tabs) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "tab";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(colTab === id));
+    b.textContent = label;
+    b.addEventListener("click", () => { colTab = id; Audio_.play("tap"); renderCollection(); });
+    tr.appendChild(b);
+  }
+  $("#paneCards").classList.toggle("on", colTab === "cards");
+  $("#paneCustom").classList.toggle("on", colTab === "custom");
+  $("#paneLook").classList.toggle("on", colTab === "look");
+
+  $("#lbName").textContent = L.fldName;
+  $("#lbGlyph").textContent = L.fldGlyph;
+  $("#btnSaveCard").textContent = L.saveCard;
+  $("#lbRedColor").textContent = L.redColour;
+  $("#lbBlueColor").textContent = L.blueColour;
+  $("#btnResetColors").textContent = L.resetColours;
+  $("#btnCloseCollection").textContent = L.done;
+
+  if (colTab === "cards") renderLibrary();
+  if (colTab === "custom") { drawMakerGrid(); updateMakerNote(); renderCustomList(); }
+  if (colTab === "look") renderSwatches();
+}
+
+function openCollection() {
+  renderCollection();
+  show("#collection");
+  Audio_.play("card");
+}
+
+/* ==========================================================================
+   19. Menu
+   ========================================================================== */
+
+function renderMenu() {
+  $("#mTagline").textContent = L.tagline;
+  $("#mLede").textContent = L.lede;
+  $("#lMode").textContent = L.mode;
+  $("#lSets").textContent = L.sets;
+  $("#btnStart").textContent = L.start;
+  $("#btnRules").textContent = L.rules;
+  $("#btnCards").textContent = L.collection;
+  $("#btnLang").textContent = L.lang;
+  $("#rulesBody").innerHTML = L.rulesHtml;
+
+  $("#btnCreate").textContent = L.create;
+  $("#btnJoin").textContent = L.join;
+
+  const modes = [
+    ["pass", L.modePass, L.modePassD],
+    ["side", L.modeSide, L.modeSideD],
+    ["online", L.modeOnline, L.modeOnlineD],
+  ];
+  const om = $("#optMode");
+  om.innerHTML = "";
+  for (const [id, t, d] of modes) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt";
+    b.setAttribute("role", "radio");
+    b.setAttribute("aria-checked", String(S.mode === id));
+    b.innerHTML = '<span class="t">' + t + '</span><span class="d">' + d + "</span>";
+    b.addEventListener("click", () => {
+      S.mode = id;
+      Audio_.play("tap");
+      renderMenu();
+    });
+    om.appendChild(b);
+  }
+
+  // online swaps the single start button for create / join
+  const online = S.mode === "online";
+  $("#onlineBox").classList.toggle("on", online);
+  $("#btnCreate").disabled = !Net.available;
+  $("#btnJoin").disabled = !Net.available;
+  $("#lbOpenRooms").textContent = L.openRooms;
+  $("#lbByCode").textContent = L.byCode;
+  if (online && !Net.available) setNetNote(L.onlineOff, true);
+  // watch the open-room list only while that part of the menu is on screen
+  const menuUp = $("#menu").classList.contains("on");
+  if (online && menuUp && !Net.browsing) startBrowsing();
+  else if ((!online || !menuUp) && Net.browsing) stopBrowsing();
+
+  const sets = [
+    ["base", L.setBase, L.setBaseD],
+    ["sensei", L.setSensei, L.setSenseiD],
+  ];
+  if (P.custom.length) sets.push(["custom", L.setCustom, L.setCustomD]);
+  const os = $("#optSets");
+  os.innerHTML = "";
+  for (const [id, t, d] of sets) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "opt";
+    b.setAttribute("role", "checkbox");
+    b.setAttribute("aria-checked", String(!!S.sets[id]));
+    b.innerHTML = '<span class="t">' + t + '</span><span class="d">' + d + "</span>";
+    b.addEventListener("click", () => {
+      S.sets[id] = !S.sets[id];
+      if (!S.sets.base && !S.sets.sensei) S.sets[id] = true;   // never an empty deck
+      Audio_.play("tap");
+      renderMenu();
+    });
+    os.appendChild(b);
+  }
+}
+
+/** The menu's enso, brushed on once. */
+function drawEnsoMark() {
+  const cv = $("#ensoMark");
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const s = 96;
+  cv.width = s * dpr; cv.height = s * dpr;
+  const x = cv.getContext("2d");
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, s, s);
+  ensoRing(x, s / 2, s / 2, s * 0.36, C.gold, {
+    from: -0.8, sweep: TAU * 0.94, width: s * 0.075, seed: 4, alpha: 0.95, bleed: 0.9,
+  });
+  x.save();
+  x.fillStyle = C.ink;
+  x.globalAlpha = 0.9;
+  x.font = "500 " + s * 0.3 + "px " + getComputedStyle(document.body).fontFamily;
+  x.textAlign = "center";
+  x.textBaseline = "middle";
+  x.fillText("鬼玉", s / 2, s / 2 + s * 0.01);
+  x.restore();
+}
+
+/* ==========================================================================
+   20. Wiring
+   ========================================================================== */
+
+function setLang(code) {
+  S.lang = code;
+  L = STR[code];
+  document.documentElement.lang = code;
+  renderMenu();
+  if (S.board) renderAll();
+}
+
+function bind() {
+  const cv = $("#board");
+  cv.addEventListener("pointerdown", (e) => { e.preventDefault(); Audio_.ensure(); onBoardDown(e); });
+  cv.addEventListener("pointermove", onBoardMove);
+  cv.addEventListener("pointerup", onBoardUp);
+  cv.addEventListener("pointercancel", () => { S.drag = null; S.selSrc = null; });
+
+  $("#topHand").addEventListener("click", onCardClick);
+  $("#botHand").addEventListener("click", onCardClick);
+
+  $("#btnStart").addEventListener("click", () => { Audio_.ensure(); Audio_.play("card"); startGame(); });
+  $("#btnAgain").addEventListener("click", () => {
+    if (isOnline()) {
+      // both seats must ask, so nobody's board is reset from under them
+      $("#btnAgain").textContent = L.rematchAsk;
+      $("#btnAgain").disabled = true;
+      Net.rematch().catch((err) => {
+        $("#btnAgain").disabled = false;
+        $("#btnAgain").textContent = L.again;
+        toast(netError(err));
+      });
+      return;
+    }
+    hide("#over");
+    startGame();
+  });
+  $("#btnToMenu").addEventListener("click", () => {
+    hide("#over");
+    if (S.net.on) { leaveOnline(); return; }
+    S.screen = "menu";
+    $("#stage").classList.remove("live");
+    show("#menu");
+  });
+  $("#btnMenu").addEventListener("click", () => {
+    Audio_.play("tap");
+    if (S.net.on) { leaveOnline(); return; }
+    S.screen = "menu";
+      show("#menu");
+  });
+
+  /* --- online --- */
+  $("#btnCreate").addEventListener("click", () => { Audio_.ensure(); Audio_.play("tap"); onlineCreate(); });
+  $("#btnJoin").addEventListener("click", () => { Audio_.ensure(); Audio_.play("tap"); onlineJoin($("#roomInput").value); });
+  $("#btnLeaveLobby").addEventListener("click", () => { Audio_.play("tap"); leaveOnline(); });
+  $("#btnCopy").addEventListener("click", () => {
+    const link = Net.inviteLink();
+    const done = () => { toast(L.copied); Audio_.play("tap"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(link).then(done, () => prompt(L.copyLink, link));
+    } else {
+      prompt(L.copyLink, link);
+    }
+  });
+  const room = $("#roomInput");
+  room.addEventListener("input", () => {
+    room.value = room.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+  });
+  room.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); onlineJoin(room.value); }
+  });
+  $("#btnUndo").addEventListener("click", undo);
+  $("#btnFlip").addEventListener("click", () => {
+    S.viewSide = other(S.viewSide);
+    S.selSrc = null;
+    Audio_.play("card");
+    renderAll();
+  });
+  $("#btnSound").addEventListener("click", () => {
+    S.sound = !S.sound;
+    if (S.sound) { Audio_.ensure(); Audio_.play("tap"); }
+    renderChrome();
+  });
+  /* --- collection --- */
+  $("#btnCards").addEventListener("click", () => { Audio_.ensure(); openCollection(); });
+  $("#btnCloseCollection").addEventListener("click", () => {
+    hide("#collection");
+    renderMenu();
+    Audio_.play("tap");
+  });
+  $("#btnClearPicks").addEventListener("click", () => {
+    P.picked = []; P.blocked = [];
+    savePrefs();
+    Audio_.play("tap");
+    renderLibrary();
+  });
+  $("#makerGrid").addEventListener("click", onMakerTap);
+  $("#btnSaveCard").addEventListener("click", saveCustomCard);
+  $("#btnResetColors").addEventListener("click", () => {
+    P.colors = { ...DEFAULT_COLORS };
+    savePrefs();
+    applyColors();
+    renderSwatches();
+    if (S.board) renderAll();
+    Audio_.play("tap");
+  });
+
+  $("#btnRules").addEventListener("click", () => {
+    $("#rulesBody").classList.toggle("on");
+    Audio_.play("tap");
+  });
+  $("#btnLang").addEventListener("click", () => setLang(S.lang === "fi" ? "en" : "fi"));
+
+  let rt = null;
+  const relayout = () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => {
+      layoutBackdrop();
+      sizeCards();
+      B.size = 0;
+      layoutBoard();
+      drawEnsoMark();
+      if (S.board) renderAll();
+    }, 90);
+  };
+  window.addEventListener("resize", relayout);
+  window.addEventListener("orientationchange", relayout);
+  document.addEventListener("visibilitychange", () => { paused = document.hidden; });
+}
+
+/* ==========================================================================
+   21. Boot
+   ========================================================================== */
+
+function boot() {
+  loadPrefs();
+  applyColors();
+  setLang("fi");
+  layoutBackdrop();
+  sizeCards();
+  drawEnsoMark();
+  bind();
+  bindNet();
+  // a board exists behind the menu, so the mat is already alive on screen
+  S.board = newBoard(deckIds());
+  S.viewSide = "red";
+  layoutBoard();
+  renderHands(null);
+  renderChrome();
+  requestAnimationFrame(() => { layoutBoard(); frame(performance.now()); });
+
+  // opened from an invite link: land on online mode and join straight away
+  const invited = Net.linkedRoom();
+  if (invited) {
+    S.mode = "online";
+    renderMenu();
+    $("#roomInput").value = invited;
+    onlineJoin(invited);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

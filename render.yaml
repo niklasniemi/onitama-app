@@ -1,0 +1,22 @@
+# Render blueprint for the Onitama realtime backend.
+# Commit this at the repo root, then in Render: New → Blueprint → pick this repo.
+#
+# rootDir is server/, but Render checks out the whole repo, which is why
+# server.js can require ../web/engine.js — one copy of the rules, shared with
+# the frontend.
+services:
+  - type: web
+    name: onitama-backend
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      # Every origin that may open a socket. Add your Vercel preview domains too,
+      # or they will be blocked by CORS.
+      - key: ALLOWED_ORIGINS
+        value: https://onitama.vercel.app,http://localhost:5173,http://localhost:8137
+      - key: NODE_ENV
+        value: production
